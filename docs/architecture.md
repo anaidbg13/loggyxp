@@ -1,6 +1,6 @@
 #  LoggyXP Architecture
 
-![Alt text](screenshots/LoggyXP_Architecture_Diagram.png) 
+![Alt text](screenshots/LoggyXP_Architecture_Diagram.svg) 
 
 ## Components description
 
