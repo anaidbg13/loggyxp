@@ -1,3 +1,8 @@
 [package]
-name = "hello_world" # the name of the package
+name = "loggyxp" # the name of the package
 version = "0.1.0"    # the current version, obeying semver
+
+[dependencies]
+regex = "1.12.2"
+
+
