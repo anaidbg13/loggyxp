@@ -8,6 +8,6 @@ pub(crate) fn read_and_print_log(log_path: &Path) -> String{
     let contents = fs::read_to_string(log_path)
         .expect("");
 
-    println!("Log:\n{contents}");
+   // println!("Log:\n{contents}");
     return contents;
 }
