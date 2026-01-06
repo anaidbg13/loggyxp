@@ -14,7 +14,7 @@ pub fn function() {
 /*log_monitoring functions*/
 pub fn get_content()
 {
-    let log_path = Path::new("./tests/logs_for_testing/dummy_log1.txt");
+    let log_path = Path::new("./tests/logs_for_testing/json1.json");
     let content = log_monitoring::read_and_print_log(log_path);
     //let content_2 = content.clone();
     //call_search_string(&content);
@@ -28,8 +28,11 @@ pub fn get_content()
 /*log_filtering functions*/
 fn call_filter_lines(content: &String, word: &String)
 {
+    println!("{}", content);
+    log_filtering::parse_json(&content).expect("TODO: panic message");
     let content_in = log_filtering::filter_lines(&content, &word);
     println!("filtered lines with word -{}-: \n{}",word, content_in);
+
 }
 
 /*Search_engine functions*/
@@ -37,7 +40,7 @@ fn call_filter_lines(content: &String, word: &String)
 fn call_search_string(content: &String)
 {
     let searched_word =  String::from("nobody");
-    let found = search_engine::search_string(&content, &searched_word);
+    //let found = search_engine::search_string(&content, &searched_word);
     // println!("Found: {}", found);
     //println!("Word count: {}", search_engine::pattern_frequency(&content, pattern));
 }
