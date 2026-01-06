@@ -1,6 +1,4 @@
 extern crate serde_json;
-
-use json::value;
 use self::serde_json::Value;
 pub fn filter_lines(content: &String, pattern: &String) -> String
 {
