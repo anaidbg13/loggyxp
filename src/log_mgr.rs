@@ -28,10 +28,11 @@ pub fn get_content()
 /*log_filtering functions*/
 fn call_filter_lines(content: &String, word: &String)
 {
-    println!("{}", content);
     log_filtering::parse_json(&content).expect("TODO: panic message");
+    let keys = log_filtering::filter_by_key_json(&content, &word);
     let content_in = log_filtering::filter_lines(&content, &word);
     println!("filtered lines with word -{}-: \n{}",word, content_in);
+    println!("Matches found for key {} : {} ",word, keys);
 
 }
 
