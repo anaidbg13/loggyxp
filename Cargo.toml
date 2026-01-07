@@ -1,10 +1,12 @@
 [package]
 name = "loggyxp" # the name of the package
 version = "0.1.0"    # the current version, obeying semver
+edition ="2024"
 
 [dependencies]
 regex = "1.12.2"
-json = "0.12.4"
 serde_json = { version = "1.0.148", features = ["preserve_order"] }
+notify = "8.2.0"
+
 
 

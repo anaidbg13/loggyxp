@@ -1,6 +1,6 @@
 use std::path::Path;
 use std::io;
-use log_mgr::search_engine::search_input_pattern;
+use search_engine::search_input_pattern;
 
 pub mod log_monitoring;
 pub mod search_engine;
@@ -8,6 +8,7 @@ pub mod log_filtering;
 
 pub fn function() {
     println!("inside log_mgr");
+    log_monitoring::file_monitoring().unwrap();
     get_content();
 }
 
