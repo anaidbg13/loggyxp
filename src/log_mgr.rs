@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::io;
 use search_engine::search_input_pattern;
+use log_monitoring::WatchCommand;
 
 pub mod log_monitoring;
 pub mod search_engine;
@@ -8,8 +9,23 @@ pub mod log_filtering;
 
 pub fn function() {
     println!("inside log_mgr");
-    log_monitoring::file_monitoring().unwrap();
     get_content();
+}
+
+pub(crate) fn start_live_monitoring(cmd_tx: std::sync::mpsc::Sender<WatchCommand>) {
+    std::thread::spawn(move || {
+        use std::time::Duration;
+
+        let paths = vec![
+            "./tests/logs_for_testing".into(),
+        ];
+
+        for path in paths {
+            println!("📨 Sending watch request: {:?}", path);
+            cmd_tx.send(WatchCommand::Add(path)).unwrap();
+            std::thread::sleep(Duration::from_secs(2));
+        }
+    });
 }
 
 /*log_monitoring functions*/
