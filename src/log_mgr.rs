@@ -19,6 +19,7 @@ pub(crate) fn start_live_monitoring(cmd_tx: std::sync::mpsc::Sender<WatchCommand
 
         let paths = vec![
             "/tmp/dummyLogs/demo.txt".into(),
+            "/tmp/dummyLogs/demo2.txt".into(),
         ];
 
         for path in paths {

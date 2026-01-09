@@ -100,28 +100,29 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>) -> thread::JoinHand
                 match event.kind {
                     EventKind::Modify(ModifyKind::Data(_)) => {
                         println!("File modified {:?}", event.paths);
+                        for path in &event.paths {
+                            let mut state = states.entry(path.clone()).or_insert_with(|| {
+                                let offset = std::fs::metadata(&path)
+                                    .map(|m| m.len())
+                                    .unwrap_or(0);
 
-                        let path = event.paths[0].clone();
+                                TailState {
+                                    path: path.clone(),
+                                    offset,
+                                }
+                            });
+                            println!("offset {}",state.offset );
 
-                        let mut state = states.entry(path.clone()).or_insert_with(|| {
-                            let offset = std::fs::metadata(&path)
-                                .map(|m| m.len())
-                                .unwrap_or(0);
+                            let new_data = tail_new_data(&mut state).unwrap();
 
-                            TailState {
-                                path: path.clone(),
-                                offset,
+                            for line in new_data.lines() {
+                                println!("TAIL ▶ {}", line);
                             }
-                        });
-                        println!("offset {}",state.offset );
 
-                        let new_data = tail_new_data(&mut state).unwrap();
-
-                        for line in new_data.lines() {
-                            println!("TAIL ▶ {}", line);
+                            log_mgr::check_patterns(&event.paths[0]);
                         }
 
-                       log_mgr::check_patterns(&event.paths[0]);
+
                     }
                     EventKind::Create(CreateKind::File) => {
                         println!("File created {:?}", event.paths);
@@ -135,11 +136,10 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>) -> thread::JoinHand
 
             }
 
-            thread::sleep(Duration::from_millis(100));
+            thread::sleep(Duration::from_millis(1000));
         }
     })
 }
-
 
 
 fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
