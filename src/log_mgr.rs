@@ -6,6 +6,7 @@ use log_monitoring::WatchCommand;
 pub mod log_monitoring;
 pub mod search_engine;
 pub mod log_filtering;
+pub mod log_notification;
 
 pub fn function() {
     println!("inside log_mgr");
@@ -55,12 +56,13 @@ fn call_filter_lines(content: &String, word: &String)
 
 /*Search_engine functions*/
 
-fn call_search_string(content: &String)
+fn call_search_string(content: &String, pattern: &String) -> bool
 {
-    let searched_word =  String::from("nobody");
-    //let found = search_engine::search_string(&content, &searched_word);
-    // println!("Found: {}", found);
+    //let searched_word =  String::from("nobody");
+    let found = search_engine::search_string(&content, &pattern);
+    println!("Found: {}", found);
     //println!("Word count: {}", search_engine::pattern_frequency(&content, pattern));
+    return found;
 }
 fn get_search_input_with_regex(content: &String)
 {
@@ -90,4 +92,15 @@ fn get_search_input_with_regex(content: &String)
 
     }
 
+
+}
+
+pub fn check_patterns(log_path: &Path) {
+
+    let pattern = String::from("eeeee");
+    let content = log_monitoring::read_only_log(log_path);
+    let found = call_search_string(&content, &pattern);
+    if found {
+        log_notification::notify_user();
+    }
 }

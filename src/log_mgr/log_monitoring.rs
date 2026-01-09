@@ -1,10 +1,12 @@
-use std::{path::Path, sync::mpsc,fs};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::event::{EventKind, CreateKind, ModifyKind, RemoveKind};
+use std::{path::Path, sync::mpsc,fs};
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 use std::path::PathBuf;
+use crate::log_mgr;
 
 #[derive(Debug)]
 pub enum WatchCommand {
@@ -21,6 +23,13 @@ pub(crate) fn read_and_print_log(log_path: &Path) -> String{
         .expect("");
 
    // println!("Log:\n{contents}");
+    return contents;
+}
+
+pub fn read_only_log(log_path: &Path) -> String{
+
+    let contents = fs::read_to_string(log_path).expect("error reading log file");
+
     return contents;
 }
 
@@ -75,7 +84,23 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, ) -> thread::JoinHa
 
             // 2️⃣ Handle file events
             while let Ok(event) = event_rx.try_recv() {
-                println!("Event: {:?}", event);
+
+                match event.kind {
+                    EventKind::Modify(ModifyKind::Data(_)) => {
+                        println!("File modified {:?}", event.paths);
+                        for path in event.paths {
+                            let file_name = path.file_name();
+                            println!("File name: {:?}", file_name);
+                        }
+
+
+                       //log_mgr::check_patterns(&event.paths[0]);
+                    }
+                    _ => {
+                        // ignore other events
+                    }
+                }
+
             }
 
             thread::sleep(Duration::from_millis(100));
