@@ -1,12 +1,15 @@
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use notify::event::{EventKind, CreateKind, ModifyKind, RemoveKind};
-use std::{path::Path, sync::mpsc,fs};
-use std::collections::HashMap;
+use std::{path::Path,fs};
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 use std::path::PathBuf;
 use crate::log_mgr;
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
+use std::collections::HashMap;
+
 
 #[derive(Debug)]
 pub enum WatchCommand {
@@ -14,6 +17,12 @@ pub enum WatchCommand {
     Remove(PathBuf),
     Shutdown,
 }
+struct TailState {
+    path: PathBuf,
+    offset: u64,
+}
+
+
 
 pub(crate) fn read_and_print_log(log_path: &Path) -> String{
 
@@ -35,12 +44,13 @@ pub fn read_only_log(log_path: &Path) -> String{
 
 
 
-pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, ) -> thread::JoinHandle<()> {
+pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>) -> thread::JoinHandle<()> {
 
     thread::spawn(move || {
         let (event_tx, event_rx) = std::sync::mpsc::channel();
         let mut watchers: HashMap<PathBuf, RecommendedWatcher> = HashMap::new();
-        //println!("Watcher manager started");
+        let mut states: HashMap<PathBuf, TailState> = HashMap::new();
+
 
         loop {
             while let Ok(cmd) = cmd_rx.try_recv() {
@@ -82,20 +92,42 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, ) -> thread::JoinHa
                 }
             }
 
+
+
             // 2️⃣ Handle file events
             while let Ok(event) = event_rx.try_recv() {
 
                 match event.kind {
                     EventKind::Modify(ModifyKind::Data(_)) => {
                         println!("File modified {:?}", event.paths);
-                        for path in event.paths {
-                            let file_name = path.file_name();
-                            println!("File name: {:?}", file_name);
+
+                        let path = event.paths[0].clone();
+
+                        let mut state = states.entry(path.clone()).or_insert_with(|| {
+                            let offset = std::fs::metadata(&path)
+                                .map(|m| m.len())
+                                .unwrap_or(0);
+
+                            TailState {
+                                path: path.clone(),
+                                offset,
+                            }
+                        });
+                        println!("offset {}",state.offset );
+
+                        let new_data = tail_new_data(&mut state).unwrap();
+
+                        for line in new_data.lines() {
+                            println!("TAIL ▶ {}", line);
                         }
 
-
-                       //log_mgr::check_patterns(&event.paths[0]);
+                       log_mgr::check_patterns(&event.paths[0]);
                     }
+                    EventKind::Create(CreateKind::File) => {
+                        println!("File created {:?}", event.paths);
+
+                    }
+
                     _ => {
                         // ignore other events
                     }
@@ -106,5 +138,33 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, ) -> thread::JoinHa
             thread::sleep(Duration::from_millis(100));
         }
     })
+}
+
+
+
+fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
+
+    let mut file = File::open(&state.path)?;
+
+    let len = file.metadata()?.len();
+    println!("len new {}",len );
+
+    // Handle truncation / rotation
+    if len < state.offset {
+        state.offset = 0;
+    }
+    println!("old offset {}",state.offset );
+    // Move cursor to last read position
+    file.seek(SeekFrom::Start(state.offset))?;
+
+    let mut buf = String::new();
+    file.read_to_string(&mut buf)?;
+
+    // Update offset
+    state.offset = len;
+
+    println!("new offset {}",state.offset );
+
+    Ok(buf)
 }
 
