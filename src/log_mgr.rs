@@ -97,7 +97,7 @@ fn get_search_input_with_regex(content: &String)
 
 pub fn check_patterns(log_path: &Path) {
 
-    let pattern = String::from("eeeee");
+    let pattern = String::from("bbbbb");
     let content = log_monitoring::read_only_log(log_path);
     let found = call_search_string(&content, &pattern);
     if found {
