@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{io, thread};
 use search_engine::search_input_pattern;
 use log_monitoring::WatchCommand;
@@ -14,12 +14,13 @@ pub fn main()
 {
     println!("main");
 
-    thread::spawn(rust_server::run_server);
-
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        rust_server::run_server(cmd_tx.clone())
+    });
 
     let _ = start_watcher_manager(cmd_rx);
-    start_live_monitoring(cmd_tx.clone());
+    //start_live_monitoring(cmd_tx.clone());
     function();
 
     loop{
@@ -32,14 +33,18 @@ pub fn function() {
     get_content();
 }
 
-pub fn start_live_monitoring(cmd_tx: std::sync::mpsc::Sender<WatchCommand>) {
+pub fn start_live_monitoring(cmd_tx: std::sync::mpsc::Sender<WatchCommand>, paths: Vec<PathBuf>) {
     std::thread::spawn(move || {
         use std::time::Duration;
 
-        let paths = vec![
-            "/tmp/dummyLogs/demo.txt".into(),
-            "/tmp/dummyLogs/demo2.txt".into(),
-        ];
+        // let paths = vec![
+        //     "/tmp/dummyLogs/demo.txt".into(),
+        //     "/tmp/dummyLogs/demo2.txt".into(),
+        // ];
+
+        //let paths_buf: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+
+
 
         for path in paths {
             println!("📨 Sending watch request: {:?}", path);

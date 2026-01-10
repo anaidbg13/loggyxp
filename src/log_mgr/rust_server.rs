@@ -1,14 +1,23 @@
 use axum::{response::Html, routing::get, Router, extract::Json, extract::State};
 use axum::response::IntoResponse;
-use std::{net::SocketAddr, sync::Arc, thread};
+use std::{net::SocketAddr, sync::Arc, path::PathBuf};
 use tokio::net::TcpListener;
 use serde::Deserialize;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use std::sync::mpsc::Sender;
+use crate::log_mgr;
+use crate::log_mgr::log_monitoring::WatchCommand;
 
 #[derive(Deserialize)]
 struct PathRequest {
     path: String,
 }
+
+#[derive(Clone)]
+struct AppState {
+    cmd_tx: Sender<WatchCommand>,
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type")]
 enum ClientMessage {
@@ -35,12 +44,13 @@ fn load_html(path: &str) -> Html<String> {
     Html(html)
 }
 
-pub fn run_server() {
+pub fn run_server(cmd_tx: Sender<WatchCommand>) {
     let addr: SocketAddr = "127.0.0.1:3000".parse().unwrap();
     let html_path = "static/dashboard.html";
 
     let Html(html) = load_html(html_path);
     let html = Arc::new(html);
+    let state = AppState{cmd_tx};
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async move {
@@ -54,7 +64,7 @@ pub fn run_server() {
             }),
 
         )
-            .route("/ws", get(ws_handler));;
+            .route("/ws", get(ws_handler)).with_state(state);;
 
         let listener = TcpListener::bind(addr).await.unwrap();
         println!("HTTP server listening on http://{}/", addr);
@@ -63,16 +73,21 @@ pub fn run_server() {
     });
 }
 
-async fn ws_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
-    // This tells Axum: "When the connection is upgraded to WS, run handle_socket"
-    ws.on_upgrade(handle_socket)
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
-async fn handle_socket(mut socket: WebSocket) {
+
+
+async fn handle_socket(mut socket: WebSocket, state: AppState) {
     while let Some(Ok(msg)) = socket.recv().await {
         if let Message::Text(text) = msg {
             match serde_json::from_str::<ClientMessage>(&text) {
                 Ok(ClientMessage::WatchPaths { paths }) => {
                     println!("Paths: {:?}", paths);
+                    let paths_buf = paths.into_iter()
+                        .map(PathBuf::from)
+                        .collect();
+                    log_mgr::start_live_monitoring(state.cmd_tx.clone(), paths_buf);
                 }
 
                 Ok(ClientMessage::SetPattern { pattern }) => {
@@ -88,7 +103,7 @@ async fn handle_socket(mut socket: WebSocket) {
                 }
 
                 Ok(ClientMessage::StopTailing) => {
-                    println!("⏹ Stop tailing");
+                    println!("Stop tailing");
                 }
 
                 Err(e) => {
