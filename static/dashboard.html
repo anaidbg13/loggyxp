@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Log Monitor</title>
+
+  <style>
+    body {
+      font-family: monospace;
+      background: #111;
+      color: #eee;
+      padding: 10px;
+    }
+
+    input, textarea, button {
+      font-family: monospace;
+      padding: 5px;
+      margin-bottom: 5px;
+      width: 100%;
+    }
+
+    label {
+      display: block;
+      margin-top: 10px;
+    }
+
+    #logs {
+      margin-top: 10px;
+      height: 50vh;
+      overflow-y: auto;
+      background: #000;
+      padding: 10px;
+      border: 1px solid #333;
+    }
+
+    .path {
+      color: #48dbfb;
+    }
+  </style>
+</head>
+
+<body>
+  <h3>📜 Log Monitor</h3>
+
+  <label>Log paths (one per line)</label>
+  <textarea id="paths" rows="4">/var/log/app.log</textarea>
+
+  <label>Search pattern</label>
+  <input id="pattern" placeholder="ERROR|WARN" />
+
+  <label>
+    <input type="checkbox" id="notify" />
+    Notify on pattern match
+  </label>
+
+  <button onclick="start()">Start Monitoring</button>
+  <button onclick="stop()">Stop</button>
+
+  <div id="logs"></div>
+
+  <script>
+    const ws = new WebSocket("ws://localhost:3000/ws");
+    const logsEl = document.getElementById("logs");
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === "log") {
+        appendLog(msg.path, msg.line);
+      }
+      if (msg.type === "notify") {
+        alert(`Pattern matched in ${msg.path}`);
+      }
+    };
+
+    function start() {
+      const paths = document
+        .getElementById("paths")
+        .value
+        .split("\n")
+        .map(p => p.trim())
+        .filter(Boolean);
+
+      ws.send(JSON.stringify({
+        type: "watch_paths",
+        paths
+      }));
+
+      ws.send(JSON.stringify({
+        type: "set_pattern",
+        pattern: document.getElementById("pattern").value
+      }));
+
+      ws.send(JSON.stringify({
+        type: "set_notify",
+        enabled: document.getElementById("notify").checked
+      }));
+
+      ws.send(JSON.stringify({ type: "start_tailing" }));
+    }
+
+    function stop() {
+      ws.send(JSON.stringify({ type: "stop_tailing" }));
+    }
+
+    function appendLog(path, line) {
+      const div = document.createElement("div");
+      div.innerHTML = `<span class="path">[${path}]</span> ${line}`;
+      logsEl.appendChild(div);
+      logsEl.scrollTop = logsEl.scrollHeight;
+    }
+  </script>
+</body>
+</html>
