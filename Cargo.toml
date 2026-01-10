@@ -7,8 +7,9 @@ edition ="2024"
 regex = "1.12.2"
 serde_json = { version = "1.0.148", features = ["preserve_order"] }
 notify = "8.2.0"
-axum = "0.8.8"
+axum = { version = "0.8.8", features = ["ws"] }
 tokio = { version = "1.49.0", features = ["full"] }
+serde = { version = "1.0.228", features = ["derive"] }
 
 
 

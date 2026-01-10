@@ -1,19 +1,38 @@
 use std::path::Path;
-use std::io;
+use std::{io, thread};
 use search_engine::search_input_pattern;
 use log_monitoring::WatchCommand;
+use log_monitoring::start_watcher_manager;
 
 pub mod log_monitoring;
 pub mod search_engine;
 pub mod log_filtering;
 pub mod log_notification;
+mod rust_server;
+
+pub fn main()
+{
+    println!("main");
+
+    thread::spawn(rust_server::run_server);
+
+    let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+
+    let _ = start_watcher_manager(cmd_rx);
+    start_live_monitoring(cmd_tx.clone());
+    function();
+
+    loop{
+        std::thread::park();
+    }
+}
 
 pub fn function() {
     println!("inside log_mgr");
     get_content();
 }
 
-pub(crate) fn start_live_monitoring(cmd_tx: std::sync::mpsc::Sender<WatchCommand>) {
+pub fn start_live_monitoring(cmd_tx: std::sync::mpsc::Sender<WatchCommand>) {
     std::thread::spawn(move || {
         use std::time::Duration;
 
@@ -59,7 +78,7 @@ fn call_filter_lines(content: &String, word: &String)
 
 fn call_search_string(content: &String, pattern: &String) -> bool
 {
-    //let searched_word =  String::from("nobody");
+    //let searched_word = String::from("nobody");
     let found = search_engine::search_string(&content, &pattern);
     println!("Found: {}", found);
     //println!("Word count: {}", search_engine::pattern_frequency(&content, pattern));
@@ -76,7 +95,7 @@ fn get_search_input_with_regex(content: &String)
 
     if matches.last().unwrap().to_string() == "valid"
     {
-        //after checking validity, remove last index
+        //after checking validity, remove last_index
         let last_index = matches.len() - 1;
         matches.remove(last_index);
 
