@@ -37,7 +37,7 @@ pub(crate) fn read_and_print_log(log_path: &Path) -> String{
     let contents = fs::read_to_string(log_path)
         .expect("");
 
-   // println!("Log:\n{contents}");
+    // println!("Log:\n{contents}");
     return contents;
 }
 
@@ -69,26 +69,33 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                         println!("Watching {:?}", path);
 
                         let tx = event_tx.clone();
-                        let mut watcher = RecommendedWatcher::new(
+                        let mut watcher = match RecommendedWatcher::new(
                             move |res| {
                                 if let Ok(event) = res {
                                     let _ = tx.send(event);
                                 }
                             },
                             notify::Config::default(),
-                        )
-                            .expect("watcher create failed");
+                        ) {
+                            Ok(w) => w,
+                            Err(e) => {
+                                eprintln!("Failed to create watcher for {}: {}", path.display(), e);
+                                continue;
+                            }
+                        };
 
-                        watcher
-                            .watch(&path, RecursiveMode::Recursive)
-                            .expect("watch failed");
+                        if let Err(e) = watcher.watch(&path, RecursiveMode::Recursive) {
+                            eprintln!("Failed to watch {}: {}", path.display(), e);
+                            continue;
+                        }
 
                         watchers.insert(path, watcher);
                     }
 
                     WatchCommand::Remove(path) => {
-                        //println!("Stop watching {:?}", path);
                         watchers.remove(&path);
+                        states.remove(&path);
+                        println!("Stopped watching {:?}", path);
                     }
 
                     WatchCommand::Shutdown => {
@@ -97,7 +104,7 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                     }
                 }
             }
-            
+
             while let Ok(event) = event_rx.try_recv() {
 
                 match event.kind {
@@ -105,32 +112,38 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                         println!("File modified {:?}", event.paths);
                         for path in &event.paths {
                             let mut state = states.entry(path.clone()).or_insert_with(|| {
-                                let offset = std::fs::metadata(&path)
-                                    .map(|m| m.len())
-                                    .unwrap_or(0);
-
-                                TailState {
-                                    path: path.clone(),
-                                    offset,
-                                }
+                                let offset = match fs::metadata(&path) {
+                                    Ok(m) => m.len(),
+                                    Err(_) => 0, // file might not exist yet
+                                };
+                                TailState { path: path.clone(), offset }
                             });
                             println!("offset {}",state.offset );
 
-                            let new_data = tail_new_data(&mut state).unwrap();
-
-                            for line in new_data.lines() {
-                                println!("TAIL ▶ {}", line);
-                                let _ = log_tx.send((path.to_string_lossy().to_string(), line.to_string()));
+                            match tail_new_data(&mut state) {
+                                Ok(new_data) => {
+                                    for line in new_data.lines() {
+                                        let _ = log_tx.send((path.to_string_lossy().to_string(), line.to_string()));
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to read {}: {}", path.display(), e);
+                                }
                             }
 
-                            log_mgr::check_patterns(&event.paths[0]);
+                            // Optional: pattern checking
+                            if let Some(first_path) = event.paths.get(0) {
+                                if first_path.exists() {
+                                    log_mgr::check_patterns(first_path);
+                                }
+                            }
                         }
-
-
                     }
-                    EventKind::Create(CreateKind::File) => {
-                        println!("File created {:?}", event.paths);
 
+                    EventKind::Create(CreateKind::File) => {
+                        for path in &event.paths {
+                            println!("File created {:?}", path);
+                        }
                     }
 
                     _ => {
@@ -147,11 +160,21 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
 
 
 fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
+    let mut file = match File::open(&state.path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Cannot open {}: {}", state.path.display(), e);
+            return Ok(String::new());
+        }
+    };
 
-    let mut file = File::open(&state.path)?;
-
-    let len = file.metadata()?.len();
-    println!("len new {}",len );
+    let len = match file.metadata() {
+        Ok(m) => m.len(),
+        Err(e) => {
+            eprintln!("Cannot get metadata for {}: {}", state.path.display(), e);
+            return Ok(String::new());
+        }
+    };
 
     // Handle truncation / rotation
     if len < state.offset {
@@ -162,7 +185,10 @@ fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
     file.seek(SeekFrom::Start(state.offset))?;
 
     let mut buf = String::new();
-    file.read_to_string(&mut buf)?;
+    if let Err(e) = file.read_to_string(&mut buf) {
+        eprintln!("Failed to read {}: {}", state.path.display(), e);
+        return Ok(String::new());
+    }
 
     // Update offset
     state.offset = len;
