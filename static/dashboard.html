@@ -70,6 +70,10 @@
     flex: 1 1 300px;
     display: flex;
     flex-direction: column;
+    overflow: auto;           /* Enable both scrollbars */
+    resize: vertical;         /* Allow vertical resizing */
+    min-height: 200px;        /* Optional: minimum height */
+    height: 600px;        /* Optional: maximum height */
   }
 
   .log-panel-header {
@@ -102,6 +106,7 @@
     border-radius: 5px;
     padding: 6px;
     overflow-y: auto;
+    overflow-x: auto;         /* Enable horizontal scrolling */
     font-size: 0.9rem;
     line-height: 1.3rem;
   }
@@ -143,6 +148,8 @@
 
   ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
+    const maxLines = 1000;
+
     if (msg.type === "log") {
       const panelObj = panels.get(msg.path);
       if (panelObj) {
@@ -150,6 +157,10 @@
         div.textContent = msg.line;
         panelObj.logsEl.appendChild(div);
         panelObj.logsEl.scrollTop = panelObj.logsEl.scrollHeight;
+
+        while (panelObj.logsEl.childNodes.length > maxLines) {
+          panelObj.logsEl.removeChild(panelObj.logsEl.firstChild);
+        }
       }
     } else if (msg.type === "notify") {
       alert(`Pattern matched in ${msg.path}`);
@@ -166,10 +177,12 @@
       <div class="panel-controls">
         <input type="text" class="pattern" placeholder="Search pattern (regex)">
         <label><input type="checkbox" class="notify"> Notify on match</label>
-        <button class="start">Start</button>
-        <button class="stop">Stop</button>
-        <button class="clear">Clear</button>
-        <button class="remove">Remove</button>
+        <div class="panel-buttons" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:8px;">
+          <button class="start">Start</button>
+          <button class="stop">Stop</button>
+          <button class="clear">Clear</button>
+          <button class="remove">Remove</button>
+        </div>
       </div>
       <div class="logs"></div>
     `;
