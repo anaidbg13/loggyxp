@@ -21,6 +21,7 @@ pub enum WatchCommand {
 struct TailState {
     path: PathBuf,
     offset: u64,
+    line_number: usize, // Track line numbers
 }
 
 
@@ -63,7 +64,6 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                         if path.exists() {
                             send_old_log_lines(&path, &log_tx);
                         }
-                        //thread::sleep(Duration::from_millis(10));
 
                         println!("Watching {:?}", path);
 
@@ -88,7 +88,15 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                             continue;
                         }
 
-                        watchers.insert(path, watcher);
+                        watchers.insert(path.clone(), watcher);
+
+                        // Initialize tail state
+                        let offset = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                        states.insert(path.clone(), TailState {
+                            path: path.clone(),
+                            offset,
+                            line_number: 0,
+                        });
                     }
 
                     WatchCommand::Remove(path) => {
@@ -110,16 +118,13 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                     EventKind::Modify(ModifyKind::Data(_)) => {
                         println!("File modified {:?}", event.paths);
                         for path in &event.paths {
-                            let mut state = states.entry(path.clone()).or_insert_with(|| {
-                                let offset = match fs::metadata(&path) {
-                                    Ok(m) => m.len(),
-                                    Err(_) => 0, // file might not exist yet
-                                };
-                                TailState { path: path.clone(), offset }
+                            let state = states.entry(path.clone()).or_insert_with(|| {
+                                let offset = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                                TailState { path: path.clone(), offset, line_number: 0 }
                             });
                             println!("offset {}",state.offset );
 
-                            match tail_new_data(&mut state) {
+                            match tail_new_data(state) {
                                 Ok(new_data) => {
                                     for line in new_data.lines() {
                                         let _ = log_tx.send((path.to_string_lossy().to_string(), line.to_string()));
@@ -178,6 +183,7 @@ fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
     // Handle truncation / rotation
     if len < state.offset {
         state.offset = 0;
+        state.line_number = 0;
     }
     println!("old offset {}",state.offset );
     // Move cursor to last read position
@@ -193,21 +199,33 @@ fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
     state.offset = len;
 
     println!("new offset {}",state.offset );
+    let mut numbered_buf = String::new();
+    for line in buf.lines() {
+        state.line_number += 1;
+        numbered_buf.push_str(&format!("{}: {}\n", state.line_number, line));
+    }
 
-    Ok(buf)
+
+    Ok(numbered_buf)
 }
 
 pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<(String, String)>) {
-    let contents = read_only_log(log_path);
+    let contents = match fs::read_to_string(log_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to read {}: {}", log_path.display(), e);
+            return;
+        }
+    };
+
     let mut count = 0;
-    for line in contents.lines() {
-        let _ = log_tx.send((log_path.to_string_lossy().to_string(), line.to_string()));
+    for (i, line) in contents.lines().enumerate() {
+        let numbered_line = format!("{}: {}", i + 1, line);
+        let _ = log_tx.send((log_path.to_string_lossy().to_string(), numbered_line));
         count += 1;
-        if count > 100
-        {
+        if count > 100 {
             count = 0;
             thread::sleep(Duration::from_millis(5));
-
         }
     }
 }
