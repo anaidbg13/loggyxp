@@ -135,9 +135,14 @@
   const pathInput = document.getElementById("paths");
   const panels = new Map(); // path -> panel object
 
+  // DRY helper to send commands
+  function sendCommand(type, paths, extra = {}) {
+    const payload = { type, paths, ...extra };
+    ws.send(JSON.stringify(payload));
+  }
+
   ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
-
     if (msg.type === "log") {
       const panelObj = panels.get(msg.path);
       if (panelObj) {
@@ -146,9 +151,7 @@
         panelObj.logsEl.appendChild(div);
         panelObj.logsEl.scrollTop = panelObj.logsEl.scrollHeight;
       }
-    }
-
-    if (msg.type === "notify") {
+    } else if (msg.type === "notify") {
       alert(`Pattern matched in ${msg.path}`);
     }
   };
@@ -158,7 +161,6 @@
 
     const panelDiv = document.createElement("div");
     panelDiv.className = "log-panel";
-
     panelDiv.innerHTML = `
       <div class="log-panel-header">${path}</div>
       <div class="panel-controls">
@@ -171,7 +173,6 @@
       </div>
       <div class="logs"></div>
     `;
-
     panelsContainer.appendChild(panelDiv);
 
     const patternInput = panelDiv.querySelector(".pattern");
@@ -184,24 +185,20 @@
 
     // Start tailing
     startBtn.onclick = () => {
-      ws.send(JSON.stringify({ type: "set_pattern", path, pattern: patternInput.value }));
-      ws.send(JSON.stringify({ type: "set_notify", path, enabled: notifyInput.checked }));
-      ws.send(JSON.stringify({ type: "start_tailing", path }));
+      sendCommand("set_pattern", [path], { pattern: patternInput.value });
+      sendCommand("set_notify", [path], { enabled: notifyInput.checked });
+      sendCommand("start_tailing", [path]);
     };
 
     // Stop tailing
-    stopBtn.onclick = () => {
-      ws.send(JSON.stringify({ type: "stop_tailing", path }));
-    };
+    stopBtn.onclick = () => sendCommand("stop_tailing", [path]);
 
     // Clear logs
-    clearBtn.onclick = () => {
-      logsEl.innerHTML = "";
-    };
+    clearBtn.onclick = () => logsEl.innerHTML = "";
 
     // Remove panel and stop tailing
     removeBtn.onclick = () => {
-      ws.send(JSON.stringify({ type: "stop_tailing", path }));
+      sendCommand("stop_tailing", [path]);
       panelsContainer.removeChild(panelDiv);
       panels.delete(path);
     };
@@ -214,16 +211,14 @@
     const paths = pathInput.value.split("\n").map(p => p.trim()).filter(Boolean);
     paths.forEach(path => {
       createPanel(path);
-      ws.send(JSON.stringify({ type: "watch_paths", paths: [path] }));
+      sendCommand("watch_paths", [path]);
     });
     pathInput.value = "";
   };
 
   // Stop all panels
   document.getElementById("stop-all").onclick = () => {
-    panels.forEach((_, path) => {
-      ws.send(JSON.stringify({ type: "stop_tailing", path }));
-    });
+    panels.forEach((_, path) => sendCommand("stop_tailing", [path]));
   };
 </script>
 

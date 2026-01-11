@@ -31,13 +31,13 @@ enum ClientMessage {
     WatchPaths { paths: Vec<String> },
 
     #[serde(rename = "set_pattern")]
-    SetPattern { pattern: String },
+    SetPattern { paths: Vec<String>, pattern: String },
 
     #[serde(rename = "set_notify")]
-    SetNotify { enabled: bool },
+    SetNotify { paths: Vec<String>, enabled: bool },
 
     #[serde(rename = "start_tailing")]
-    StartTailing,
+    StartTailing {paths: Vec<String> },
 
     #[serde(rename = "stop_tailing")]
     StopTailing { paths: Vec<String> },
@@ -130,17 +130,21 @@ async fn handle_socket(
                         .collect();
                     state.cmd_tx.send(WatchCommand::Add(paths_buf)).expect("failed to create watcher");
                 }
-                Ok(ClientMessage::SetPattern { pattern }) => {
+                Ok(ClientMessage::SetPattern { paths,pattern }) => {
                     println!("Pattern: {}", pattern);
                 }
-                Ok(ClientMessage::SetNotify { enabled }) => {
+                Ok(ClientMessage::SetNotify { paths, enabled }) => {
                     println!("Notify: {}", enabled);
                 }
-                Ok(ClientMessage::StartTailing) => {
+                Ok(ClientMessage::StartTailing { paths}) => {
                     println!("Start tailing");
+                    let paths_buf = paths.into_iter()
+                        .map(PathBuf::from)
+                        .collect();
+                    state.cmd_tx.send(WatchCommand::Add(paths_buf)).expect("failed to remove watcher");
                 }
                 Ok(ClientMessage::StopTailing { paths }) => {
-                    println!("Stop tailing");
+                    println!("Stop tailing {}", paths.join(", "));
                     let paths_buf = paths.into_iter()
                         .map(PathBuf::from)
                         .collect();

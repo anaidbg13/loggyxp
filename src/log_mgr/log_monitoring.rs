@@ -63,6 +63,7 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                         if path.exists() {
                             send_old_log_lines(&path, &log_tx);
                         }
+                        //thread::sleep(Duration::from_millis(10));
 
                         println!("Watching {:?}", path);
 
@@ -151,7 +152,7 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
 
             }
 
-            thread::sleep(Duration::from_millis(1000));
+            thread::sleep(Duration::from_millis(100));
         }
     })
 }
@@ -198,7 +199,15 @@ fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
 
 pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<(String, String)>) {
     let contents = read_only_log(log_path);
+    let mut count = 0;
     for line in contents.lines() {
         let _ = log_tx.send((log_path.to_string_lossy().to_string(), line.to_string()));
+        count += 1;
+        if count > 100
+        {
+            count = 0;
+            thread::sleep(Duration::from_millis(5));
+
+        }
     }
 }
