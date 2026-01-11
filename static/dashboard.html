@@ -166,6 +166,8 @@
         <label><input type="checkbox" class="notify"> Notify on match</label>
         <button class="start">Start</button>
         <button class="stop">Stop</button>
+        <button class="clear">Clear</button>
+        <button class="remove">Remove</button>
       </div>
       <div class="logs"></div>
     `;
@@ -176,21 +178,38 @@
     const notifyInput = panelDiv.querySelector(".notify");
     const startBtn = panelDiv.querySelector(".start");
     const stopBtn = panelDiv.querySelector(".stop");
+    const clearBtn = panelDiv.querySelector(".clear");
+    const removeBtn = panelDiv.querySelector(".remove");
     const logsEl = panelDiv.querySelector(".logs");
 
+    // Start tailing
     startBtn.onclick = () => {
       ws.send(JSON.stringify({ type: "set_pattern", path, pattern: patternInput.value }));
       ws.send(JSON.stringify({ type: "set_notify", path, enabled: notifyInput.checked }));
       ws.send(JSON.stringify({ type: "start_tailing", path }));
     };
 
+    // Stop tailing
     stopBtn.onclick = () => {
       ws.send(JSON.stringify({ type: "stop_tailing", path }));
+    };
+
+    // Clear logs
+    clearBtn.onclick = () => {
+      logsEl.innerHTML = "";
+    };
+
+    // Remove panel and stop tailing
+    removeBtn.onclick = () => {
+      ws.send(JSON.stringify({ type: "stop_tailing", path }));
+      panelsContainer.removeChild(panelDiv);
+      panels.delete(path);
     };
 
     panels.set(path, { logsEl, patternInput, notifyInput });
   }
 
+  // Add paths
   document.getElementById("add-path").onclick = () => {
     const paths = pathInput.value.split("\n").map(p => p.trim()).filter(Boolean);
     paths.forEach(path => {
@@ -200,11 +219,13 @@
     pathInput.value = "";
   };
 
+  // Stop all panels
   document.getElementById("stop-all").onclick = () => {
     panels.forEach((_, path) => {
       ws.send(JSON.stringify({ type: "stop_tailing", path }));
     });
   };
 </script>
+
 </body>
 </html>
