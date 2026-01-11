@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::{io, thread};
+use std::time::Duration;
+use tokio::sync::mpsc;
 use search_engine::search_input_pattern;
 use log_monitoring::WatchCommand;
 use log_monitoring::start_watcher_manager;
@@ -10,23 +12,29 @@ pub mod log_filtering;
 pub mod log_notification;
 mod rust_server;
 
-pub fn main()
-{
+pub fn main() {
     println!("main");
 
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
-    thread::spawn(move || {
-        rust_server::run_server(cmd_tx.clone())
+    let (log_tx, _log_rx) = tokio::sync::broadcast::channel::<(String, String)>(1024);
+
+    // Start server
+    thread::spawn({
+        let cmd_tx = cmd_tx.clone();
+        let log_tx = log_tx.clone();
+        move || {
+            rust_server::run_server(cmd_tx, log_tx);
+        }
     });
 
-    let _ = start_watcher_manager(cmd_rx);
-    //start_live_monitoring(cmd_tx.clone());
-    function();
+    // Start watcher
+    let _ = start_watcher_manager(cmd_rx, log_tx);
 
-    loop{
+    loop {
         std::thread::park();
     }
 }
+
 
 pub fn function() {
     println!("inside log_mgr");
@@ -37,21 +45,21 @@ pub fn start_live_monitoring(cmd_tx: std::sync::mpsc::Sender<WatchCommand>, path
     std::thread::spawn(move || {
         use std::time::Duration;
 
-        // let paths = vec![
-        //     "/tmp/dummyLogs/demo.txt".into(),
-        //     "/tmp/dummyLogs/demo2.txt".into(),
-        // ];
-
-        //let paths_buf: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-
-
-
         for path in paths {
             println!("📨 Sending watch request: {:?}", path);
             cmd_tx.send(WatchCommand::Add(path)).unwrap();
             std::thread::sleep(Duration::from_secs(2));
         }
     });
+}
+
+pub fn remove_live_monitoring(cmd_tx: std::sync::mpsc::Sender<WatchCommand>, paths: Vec<PathBuf>) {
+
+    for path in paths {
+        println!("Removing watch request: {:?}", path);
+        cmd_tx.send(WatchCommand::Remove(path)).unwrap();
+        std::thread::sleep(Duration::from_secs(2));
+    }
 }
 
 /*log_monitoring functions*/

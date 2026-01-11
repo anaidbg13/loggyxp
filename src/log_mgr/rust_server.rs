@@ -1,12 +1,17 @@
 use axum::{response::Html, routing::get, Router, extract::Json, extract::State};
 use axum::response::IntoResponse;
-use std::{net::SocketAddr, sync::Arc, path::PathBuf};
+use std::{net::SocketAddr, sync::Arc, path::PathBuf, sync::Mutex};
 use tokio::net::TcpListener;
 use serde::Deserialize;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use std::sync::mpsc::Sender;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::UnboundedReceiver;
 use crate::log_mgr;
 use crate::log_mgr::log_monitoring::WatchCommand;
+use crate::log_mgr::log_monitoring::LogEvent;
+use futures_util::{StreamExt, SinkExt};
+use tokio::sync::broadcast;
 
 #[derive(Deserialize)]
 struct PathRequest {
@@ -16,6 +21,11 @@ struct PathRequest {
 #[derive(Clone)]
 struct AppState {
     cmd_tx: Sender<WatchCommand>,
+    log_tx: broadcast::Sender<(String, String)>,
+}
+
+pub struct WsClient {
+    tx: Sender<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -34,7 +44,7 @@ enum ClientMessage {
     StartTailing,
 
     #[serde(rename = "stop_tailing")]
-    StopTailing,
+    StopTailing { paths: Vec<String> },
 }
 
 
@@ -44,13 +54,18 @@ fn load_html(path: &str) -> Html<String> {
     Html(html)
 }
 
-pub fn run_server(cmd_tx: Sender<WatchCommand>) {
+pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: tokio::sync::broadcast::Sender<(String, String)>) {
     let addr: SocketAddr = "127.0.0.1:3000".parse().unwrap();
     let html_path = "static/dashboard.html";
 
     let Html(html) = load_html(html_path);
     let html = Arc::new(html);
-    let state = AppState{cmd_tx};
+    let state = AppState {
+        cmd_tx,
+        log_tx: log_tx.clone(),
+    };
+
+
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async move {
@@ -64,7 +79,16 @@ pub fn run_server(cmd_tx: Sender<WatchCommand>) {
             }),
 
         )
-            .route("/ws", get(ws_handler)).with_state(state);;
+
+            .route(
+                "/ws",
+                get(move |ws: WebSocketUpgrade, State(state): State<AppState>| {
+                    let log_rx = state.log_tx.subscribe();
+                    ws_handler(ws, State(state), log_rx)
+                }),
+            )
+            .with_state(state);
+
 
         let listener = TcpListener::bind(addr).await.unwrap();
         println!("HTTP server listening on http://{}/", addr);
@@ -73,13 +97,34 @@ pub fn run_server(cmd_tx: Sender<WatchCommand>) {
     });
 }
 
-async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    mut log_rx: broadcast::Receiver<(String, String)>
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket(socket, state, log_rx))
 }
 
+async fn handle_socket(
+    mut socket: WebSocket,
+    state: AppState,
+    mut log_rx: broadcast::Receiver<(String, String)>
+) {
 
-async fn handle_socket(mut socket: WebSocket, state: AppState) {
-    while let Some(Ok(msg)) = socket.recv().await {
+    let (mut ws_tx, mut ws_rx) = socket.split();
+
+    tokio::spawn(async move {
+        while let Ok((path, line)) = log_rx.recv().await {
+            let msg = serde_json::json!({
+                "type": "log",
+                "path": path,
+                "line": line
+            });
+            let _ = ws_tx.send(Message::Text(msg.to_string().into())).await;
+        }
+    });
+
+    while let Some(Ok(msg)) = ws_rx.next().await {
         if let Message::Text(text) = msg {
             match serde_json::from_str::<ClientMessage>(&text) {
                 Ok(ClientMessage::WatchPaths { paths }) => {
@@ -87,25 +132,24 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     let paths_buf = paths.into_iter()
                         .map(PathBuf::from)
                         .collect();
-                    log_mgr::start_live_monitoring(state.cmd_tx.clone(), paths_buf);
+                    state.cmd_tx.send(WatchCommand::Add(paths_buf)).expect("failed to create watcher");
                 }
-
                 Ok(ClientMessage::SetPattern { pattern }) => {
                     println!("Pattern: {}", pattern);
                 }
-
                 Ok(ClientMessage::SetNotify { enabled }) => {
                     println!("Notify: {}", enabled);
                 }
-
                 Ok(ClientMessage::StartTailing) => {
                     println!("Start tailing");
                 }
-
-                Ok(ClientMessage::StopTailing) => {
+                Ok(ClientMessage::StopTailing { paths }) => {
                     println!("Stop tailing");
+                    let paths_buf = paths.into_iter()
+                        .map(PathBuf::from)
+                        .collect();
+                    state.cmd_tx.send(WatchCommand::Remove(paths_buf)).expect("failed to remove watcher");
                 }
-
                 Err(e) => {
                     eprintln!("Invalid WS message: {}", e);
                 }

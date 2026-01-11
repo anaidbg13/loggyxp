@@ -1,113 +1,210 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Log Monitor</title>
+<meta charset="UTF-8">
+<title>Log Monitor</title>
+<style>
+  /* General page styling */
+  body {
+    font-family: "Courier New", monospace;
+    background: #1e1e2f;
+    color: #eee;
+    margin: 0;
+    padding: 20px;
+  }
 
-  <style>
-    body {
-      font-family: monospace;
-      background: #111;
-      color: #eee;
-      padding: 10px;
-    }
+  h3 {
+    text-align: center;
+    color: #f5f5f5;
+  }
 
-    input, textarea, button {
-      font-family: monospace;
-      padding: 5px;
-      margin-bottom: 5px;
-      width: 100%;
-    }
+  /* Input area */
+  #controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
 
-    label {
-      display: block;
-      margin-top: 10px;
-    }
+  textarea, input[type=text] {
+    font-family: monospace;
+    padding: 8px;
+    border-radius: 5px;
+    border: 1px solid #555;
+    background: #2b2b3f;
+    color: #eee;
+  }
 
-    #logs {
-      margin-top: 10px;
-      height: 50vh;
-      overflow-y: auto;
-      background: #000;
-      padding: 10px;
-      border: 1px solid #333;
-    }
+  textarea {
+    flex: 1 1 300px;
+    height: 80px;
+  }
 
-    .path {
-      color: #48dbfb;
+  button {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 5px;
+    background: #4e9af1;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  button:hover {
+    background: #3378d7;
+  }
+
+  /* Panels container */
+  #panels-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+  }
+
+  /* Individual log panel */
+  .log-panel {
+    background: #2b2b3f;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    padding: 12px;
+    flex: 1 1 300px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .log-panel-header {
+    font-weight: bold;
+    font-size: 1rem;
+    color: #48dbfb;
+    margin-bottom: 8px;
+  }
+
+  .panel-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .panel-controls input[type=text] {
+    flex: 1 1 auto;
+  }
+
+  .panel-controls label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .logs {
+    flex: 1 1 auto;
+    background: #1a1a2e;
+    border-radius: 5px;
+    padding: 6px;
+    overflow-y: auto;
+    font-size: 0.9rem;
+    line-height: 1.3rem;
+  }
+
+  .logs div {
+    padding: 1px 0;
+  }
+
+  /* Responsive */
+  @media (max-width: 700px) {
+    #panels-container {
+      flex-direction: column;
     }
-  </style>
+  }
+</style>
 </head>
-
 <body>
-  <h3>📜 Log Monitor</h3>
+<h3>Log Monitor</h3>
 
-  <label>Log paths (one per line)</label>
-  <textarea id="paths" rows="4">/var/log/app.log</textarea>
+<div id="controls">
+  <textarea id="paths" placeholder="Enter log paths, one per line">/var/log/app.log</textarea>
+  <button id="add-path">Add Path(s)</button>
+  <button id="stop-all">Stop All</button>
+</div>
 
-  <label>Search pattern</label>
-  <input id="pattern" placeholder="ERROR|WARN" />
+<div id="panels-container"></div>
 
-  <label>
-    <input type="checkbox" id="notify" />
-    Notify on pattern match
-  </label>
+<script>
+  const ws = new WebSocket("ws://localhost:3000/ws");
+  const panelsContainer = document.getElementById("panels-container");
+  const pathInput = document.getElementById("paths");
+  const panels = new Map(); // path -> panel object
 
-  <button onclick="start()">Start Monitoring</button>
-  <button onclick="stop()">Stop</button>
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
 
-  <div id="logs"></div>
-
-  <script>
-    const ws = new WebSocket("ws://localhost:3000/ws");
-    const logsEl = document.getElementById("logs");
-
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === "log") {
-        appendLog(msg.path, msg.line);
+    if (msg.type === "log") {
+      const panelObj = panels.get(msg.path);
+      if (panelObj) {
+        const div = document.createElement("div");
+        div.textContent = msg.line;
+        panelObj.logsEl.appendChild(div);
+        panelObj.logsEl.scrollTop = panelObj.logsEl.scrollHeight;
       }
-      if (msg.type === "notify") {
-        alert(`Pattern matched in ${msg.path}`);
-      }
+    }
+
+    if (msg.type === "notify") {
+      alert(`Pattern matched in ${msg.path}`);
+    }
+  };
+
+  function createPanel(path) {
+    if (panels.has(path)) return;
+
+    const panelDiv = document.createElement("div");
+    panelDiv.className = "log-panel";
+
+    panelDiv.innerHTML = `
+      <div class="log-panel-header">${path}</div>
+      <div class="panel-controls">
+        <input type="text" class="pattern" placeholder="Search pattern (regex)">
+        <label><input type="checkbox" class="notify"> Notify on match</label>
+        <button class="start">Start</button>
+        <button class="stop">Stop</button>
+      </div>
+      <div class="logs"></div>
+    `;
+
+    panelsContainer.appendChild(panelDiv);
+
+    const patternInput = panelDiv.querySelector(".pattern");
+    const notifyInput = panelDiv.querySelector(".notify");
+    const startBtn = panelDiv.querySelector(".start");
+    const stopBtn = panelDiv.querySelector(".stop");
+    const logsEl = panelDiv.querySelector(".logs");
+
+    startBtn.onclick = () => {
+      ws.send(JSON.stringify({ type: "set_pattern", path, pattern: patternInput.value }));
+      ws.send(JSON.stringify({ type: "set_notify", path, enabled: notifyInput.checked }));
+      ws.send(JSON.stringify({ type: "start_tailing", path }));
     };
 
-    function start() {
-      const paths = document
-        .getElementById("paths")
-        .value
-        .split("\n")
-        .map(p => p.trim())
-        .filter(Boolean);
+    stopBtn.onclick = () => {
+      ws.send(JSON.stringify({ type: "stop_tailing", path }));
+    };
 
-      ws.send(JSON.stringify({
-        type: "watch_paths",
-        paths
-      }));
+    panels.set(path, { logsEl, patternInput, notifyInput });
+  }
 
-      ws.send(JSON.stringify({
-        type: "set_pattern",
-        pattern: document.getElementById("pattern").value
-      }));
+  document.getElementById("add-path").onclick = () => {
+    const paths = pathInput.value.split("\n").map(p => p.trim()).filter(Boolean);
+    paths.forEach(path => {
+      createPanel(path);
+      ws.send(JSON.stringify({ type: "watch_paths", paths: [path] }));
+    });
+    pathInput.value = "";
+  };
 
-      ws.send(JSON.stringify({
-        type: "set_notify",
-        enabled: document.getElementById("notify").checked
-      }));
-
-      ws.send(JSON.stringify({ type: "start_tailing" }));
-    }
-
-    function stop() {
-      ws.send(JSON.stringify({ type: "stop_tailing" }));
-    }
-
-    function appendLog(path, line) {
-      const div = document.createElement("div");
-      div.innerHTML = `<span class="path">[${path}]</span> ${line}`;
-      logsEl.appendChild(div);
-      logsEl.scrollTop = logsEl.scrollHeight;
-    }
-  </script>
+  document.getElementById("stop-all").onclick = () => {
+    panels.forEach((_, path) => {
+      ws.send(JSON.stringify({ type: "stop_tailing", path }));
+    });
+  };
+</script>
 </body>
 </html>

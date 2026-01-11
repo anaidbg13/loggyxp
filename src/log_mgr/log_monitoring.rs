@@ -9,7 +9,8 @@ use crate::log_mgr;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::collections::HashMap;
-
+use tokio::sync::broadcast;
+use tokio::sync::mpsc::UnboundedSender;
 
 #[derive(Debug)]
 pub enum WatchCommand {
@@ -20,6 +21,11 @@ pub enum WatchCommand {
 struct TailState {
     path: PathBuf,
     offset: u64,
+}
+
+pub struct LogEvent {
+    pub path: String,
+    pub line: String,
 }
 
 
@@ -44,7 +50,7 @@ pub fn read_only_log(log_path: &Path) -> String{
 
 
 
-pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>) -> thread::JoinHandle<()> {
+pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::Sender<(String, String)>) -> thread::JoinHandle<()> {
 
     thread::spawn(move || {
         let (event_tx, event_rx) = std::sync::mpsc::channel();
@@ -91,10 +97,7 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>) -> thread::JoinHand
                     }
                 }
             }
-
-
-
-            // 2️⃣ Handle file events
+            
             while let Ok(event) = event_rx.try_recv() {
 
                 match event.kind {
@@ -117,6 +120,7 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>) -> thread::JoinHand
 
                             for line in new_data.lines() {
                                 println!("TAIL ▶ {}", line);
+                                let _ = log_tx.send((path.to_string_lossy().to_string(), line.to_string()));
                             }
 
                             log_mgr::check_patterns(&event.paths[0]);
