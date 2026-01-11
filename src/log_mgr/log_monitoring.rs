@@ -23,12 +23,6 @@ struct TailState {
     offset: u64,
 }
 
-pub struct LogEvent {
-    pub path: String,
-    pub line: String,
-}
-
-
 
 pub(crate) fn read_and_print_log(log_path: &Path) -> String{
 
@@ -64,6 +58,10 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                     WatchCommand::Add(path) => {
                         if watchers.contains_key(&path) {
                             continue;
+                        }
+
+                        if path.exists() {
+                            send_old_log_lines(&path, &log_tx);
                         }
 
                         println!("Watching {:?}", path);
@@ -198,3 +196,9 @@ fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
     Ok(buf)
 }
 
+pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<(String, String)>) {
+    let contents = read_only_log(log_path);
+    for line in contents.lines() {
+        let _ = log_tx.send((log_path.to_string_lossy().to_string(), line.to_string()));
+    }
+}

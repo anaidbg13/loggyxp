@@ -5,11 +5,7 @@ use tokio::net::TcpListener;
 use serde::Deserialize;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use std::sync::mpsc::Sender;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::UnboundedReceiver;
-use crate::log_mgr;
 use crate::log_mgr::log_monitoring::WatchCommand;
-use crate::log_mgr::log_monitoring::LogEvent;
 use futures_util::{StreamExt, SinkExt};
 use tokio::sync::broadcast;
 
