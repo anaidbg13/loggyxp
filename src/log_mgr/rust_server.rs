@@ -2,12 +2,13 @@ use axum::{response::Html, routing::get, Router, extract::Json, extract::State};
 use axum::response::IntoResponse;
 use std::{net::SocketAddr, sync::Arc, path::PathBuf, sync::Mutex};
 use tokio::net::TcpListener;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use std::sync::mpsc::Sender;
 use crate::log_mgr::log_monitoring::WatchCommand;
 use futures_util::{StreamExt, SinkExt};
 use tokio::sync::broadcast;
+use crate::log_mgr;
 
 #[derive(Deserialize)]
 struct PathRequest {
@@ -17,7 +18,7 @@ struct PathRequest {
 #[derive(Clone)]
 struct AppState {
     cmd_tx: Sender<WatchCommand>,
-    log_tx: broadcast::Sender<(String, String)>,
+    log_tx: broadcast::Sender<WsEventTx>,
 }
 
 pub struct WsClient {
@@ -41,6 +42,29 @@ enum ClientMessage {
 
     #[serde(rename = "stop_tailing")]
     StopTailing { paths: Vec<String> },
+
+    #[serde(rename = "search")]
+    Search {
+        paths: Vec<String>,
+        pattern: String,
+        regex: bool,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type")]
+pub enum WsEventTx {
+    #[serde(rename = "log")]
+    Log {
+        path: String,
+        line: String,
+    },
+
+    #[serde(rename = "search_result")]
+    SearchResult {
+        path: String,
+        lines: Vec<usize>,
+    },
 }
 
 
@@ -50,7 +74,7 @@ fn load_html(path: &str) -> Html<String> {
     Html(html)
 }
 
-pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: tokio::sync::broadcast::Sender<(String, String)>) {
+pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: broadcast::Sender<WsEventTx>) {
     let addr: SocketAddr = "127.0.0.1:3000".parse().unwrap();
     let html_path = "static/dashboard.html";
 
@@ -96,7 +120,7 @@ pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: tokio::sync::broadcast::
 async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
-    mut log_rx: broadcast::Receiver<(String, String)>
+    mut log_rx: broadcast::Receiver<WsEventTx>
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, state, log_rx))
 }
@@ -104,19 +128,17 @@ async fn ws_handler(
 async fn handle_socket(
     mut socket: WebSocket,
     state: AppState,
-    mut log_rx: broadcast::Receiver<(String, String)>
+    mut log_rx: broadcast::Receiver<WsEventTx>
 ) {
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
     tokio::spawn(async move {
-        while let Ok((path, line)) = log_rx.recv().await {
-            let msg = serde_json::json!({
-                "type": "log",
-                "path": path,
-                "line": line
-            });
-            let _ = ws_tx.send(Message::Text(msg.to_string().into())).await;
+        while let Ok(event) = log_rx.recv().await {
+            let json = serde_json::to_string(&event).unwrap();
+            let _ = ws_tx
+                .send(Message::Text(json.into()))
+                .await;
         }
     });
 
@@ -149,6 +171,19 @@ async fn handle_socket(
                         .map(PathBuf::from)
                         .collect();
                     state.cmd_tx.send(WatchCommand::Remove(paths_buf)).expect("failed to remove watcher");
+                }
+                Ok(ClientMessage::Search { paths, pattern, regex }) => {
+                    println!(
+                        "Search request: paths={:?}, pattern={}, regex={}",
+                        paths, pattern, regex
+                    );
+
+                    let paths_buf: Vec<_> = paths
+                        .into_iter()
+                        .map(PathBuf::from)
+                        .collect();
+
+                    log_mgr::call_search_string(&state.log_tx, &pattern, paths_buf);
                 }
                 Err(e) => {
                     eprintln!("Invalid WS message: {}", e);

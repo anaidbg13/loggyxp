@@ -1,32 +1,36 @@
 extern crate regex;
-use self::regex::Regex;
+use regex::Regex;
 
-pub fn search_string(content: &String, word: &String) -> bool
-{
-  /*
-    Keep  to understand references
-    let mut found = false;
-    if content.contains(&*word){
-        found = true;
-    }
-   return found;*/
 
-    let found;
-    let pattern = format!(r"\b{}\b", word);
-    let re = Regex::new(&pattern).unwrap();
-    if re.is_match(content){
-        println!("{} appears: {} times",word, re.find_iter(word).count());
-        found = true;
-        return found;
-    }else
-    {
-        println!("{} was not found in log", word);
-        found = false;
-        return found;
+pub fn search_string(content: &String, word: &String) -> Vec<usize> {
+    let mut lines = Vec::new();
+
+    if word.is_empty() {
+        return lines;
     }
 
+    let needle = word.to_lowercase();
 
+    for (idx, line) in content.lines().enumerate() {
+        if line.to_lowercase().contains(&needle) {
+            lines.push(idx + 1);
+        }
+    }
+
+    if lines.is_empty() {
+        println!("'{}' was not found", word);
+    } else {
+        println!("'{}' found on lines {:?}", word, lines);
+    }
+
+    lines
 }
+
+
+
+
+
+
 
 pub fn search_input_pattern(content: &String, pattern: &String) -> Vec<String>
 {

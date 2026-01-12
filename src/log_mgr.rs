@@ -1,10 +1,11 @@
 use std::path::{Path, PathBuf};
 use std::{io, thread};
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use search_engine::search_input_pattern;
 use log_monitoring::WatchCommand;
 use log_monitoring::start_watcher_manager;
+use crate::log_mgr::rust_server::WsEventTx;
 
 pub mod log_monitoring;
 pub mod search_engine;
@@ -16,7 +17,7 @@ pub fn main() {
     println!("main");
 
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
-    let (log_tx, _log_rx) = tokio::sync::broadcast::channel::<(String, String)>(1024);
+    let (log_tx, _log_rx) = tokio::sync::broadcast::channel::<WsEventTx>(1024);
 
     // Start server
     thread::spawn({
@@ -38,7 +39,7 @@ pub fn main() {
 
 pub fn function() {
     println!("inside log_mgr");
-    get_content();
+    //get_content();
 }
 
 pub fn start_live_monitoring(cmd_tx: std::sync::mpsc::Sender<WatchCommand>, paths: Vec<PathBuf>) {
@@ -63,15 +64,16 @@ pub fn remove_live_monitoring(cmd_tx: std::sync::mpsc::Sender<WatchCommand>, pat
 }
 
 /*log_monitoring functions*/
-pub fn get_content()
+pub fn get_content(paths: &Vec<PathBuf>) -> String
 {
-    let log_path = Path::new("./tests/logs_for_testing/json1.json");
-    let content = log_monitoring::read_and_print_log(log_path);
-    //let content_2 = content.clone();
-    //call_search_string(&content);
-    //call_filter_lines(&content_2);
-    get_search_input_with_regex(&content);
 
+    if paths[0].exists() {
+        println!("path exists");
+        let log_path = Path::new(paths[0].to_str().unwrap());
+        let content = log_monitoring::read_and_print_log(log_path);
+        return content;
+    }
+    String::new()
 }
 
 
@@ -89,13 +91,16 @@ fn call_filter_lines(content: &String, word: &String)
 
 /*Search_engine functions*/
 
-fn call_search_string(content: &String, pattern: &String) -> bool
+fn call_search_string(log_tx: &broadcast::Sender<WsEventTx>, pattern: &String, paths: Vec<PathBuf>)
 {
-    //let searched_word = String::from("nobody");
-    let found = search_engine::search_string(&content, &pattern);
-    println!("Found: {}", found);
-    //println!("Word count: {}", search_engine::pattern_frequency(&content, pattern));
-    return found;
+    let content = get_content(&paths);
+    let lines = search_engine::search_string(&content, &pattern);
+    println!("lines with pattern {}: {:?}",pattern, lines);
+
+    let _ = log_tx.send(WsEventTx::SearchResult {
+        path: paths[0].to_string_lossy().to_string(),
+        lines: lines.clone(),
+    });
 }
 fn get_search_input_with_regex(content: &String)
 {
@@ -132,8 +137,8 @@ pub fn check_patterns(log_path: &Path) {
 
     let pattern = String::from("bbbbb");
     let content = log_monitoring::read_only_log(log_path);
-    let found = call_search_string(&content, &pattern);
-    if found {
-        log_notification::notify_user();
-    }
+    //let found = call_search_string(&content, pattern);
+    // if found {
+    //     log_notification::notify_user();
+    // }
 }

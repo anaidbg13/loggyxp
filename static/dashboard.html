@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <title>Log Monitor</title>
 <style>
-  /* General page styling */
   body {
     font-family: "Courier New", monospace;
     background: #1e1e2f;
@@ -18,7 +17,6 @@
     color: #f5f5f5;
   }
 
-  /* Input area */
   #controls {
     display: flex;
     gap: 10px;
@@ -47,38 +45,34 @@
     background: #4e9af1;
     color: #fff;
     cursor: pointer;
-    transition: background 0.2s;
   }
 
   button:hover {
     background: #3378d7;
   }
 
-  /* Panels container */
   #panels-container {
     display: flex;
     flex-wrap: wrap;
     gap: 15px;
   }
 
-  /* Individual log panel */
   .log-panel {
     background: #2b2b3f;
     border-radius: 10px;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
     padding: 12px;
-    flex: 1 1 300px;
+    flex: 1 1 400px;
     display: flex;
     flex-direction: column;
-    overflow: auto;           /* Enable both scrollbars */
-    resize: vertical;         /* Allow vertical resizing */
-    min-height: 200px;        /* Optional: minimum height */
-    height: 600px;        /* Optional: maximum height */
+    height: 600px;          /* default user height */
+    min-height: 300px;      /* min height for user resize */
+    max-height: 1000px;     /* max height for user resize */
+    resize: vertical;       /* user can drag vertically */
+    overflow: hidden;
   }
 
   .log-panel-header {
     font-weight: bold;
-    font-size: 1rem;
     color: #48dbfb;
     margin-bottom: 8px;
   }
@@ -86,40 +80,50 @@
   .panel-controls {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
     margin-bottom: 8px;
   }
 
-  .panel-controls input[type=text] {
-    flex: 1 1 auto;
-  }
-
-  .panel-controls label {
+  .logs-container {
     display: flex;
-    align-items: center;
-    gap: 4px;
+    flex-direction: column;
+    flex: 1;
+    gap: 6px;
+    overflow: hidden;
   }
 
-  .logs {
-    flex: 1 1 auto;
+  .tail-logs, .search-results {
     background: #1a1a2e;
     border-radius: 5px;
     padding: 6px;
-    overflow-y: auto;
-    overflow-x: auto;         /* Enable horizontal scrolling */
+    overflow-y: auto;       /* scroll appears if content overflows */
     font-size: 0.9rem;
     line-height: 1.3rem;
   }
 
-  .logs div {
-    padding: 1px 0;
+  .tail-logs {
+    flex: 2;                /* bigger than search results */
   }
 
-  /* Responsive */
-  @media (max-width: 700px) {
-    #panels-container {
-      flex-direction: column;
-    }
+  .search-results {
+    flex: 1;
+    background: #111;
+  }
+
+  .match {
+    background-color: rgba(255, 215, 0, 0.25);
+    font-weight: bold;
+  }
+
+  .match-current {
+    background-color: rgba(255, 99, 71, 0.5);
+  }
+
+  .resume-scroll {
+    margin-top: 5px;
+    align-self: flex-start;
+    background: #f39c12;
+    display: none;
   }
 </style>
 </head>
@@ -127,7 +131,7 @@
 <h3>Log Monitor</h3>
 
 <div id="controls">
-  <textarea id="paths" placeholder="Enter log paths, one per line">/var/log/app.log</textarea>
+  <textarea id="paths" placeholder="Enter log paths, one per line"></textarea>
   <button id="add-path">Add Path(s)</button>
   <button id="stop-all">Stop All</button>
 </div>
@@ -135,105 +139,144 @@
 <div id="panels-container"></div>
 
 <script>
-  const ws = new WebSocket("ws://localhost:3000/ws");
-  const panelsContainer = document.getElementById("panels-container");
-  const pathInput = document.getElementById("paths");
-  const panels = new Map(); // path -> panel object
+const ws = new WebSocket("ws://localhost:3000/ws");
+const panelsContainer = document.getElementById("panels-container");
+const pathInput = document.getElementById("paths");
+const panels = new Map();
 
-  // DRY helper to send commands
-  function sendCommand(type, paths, extra = {}) {
-    const payload = { type, paths, ...extra };
-    ws.send(JSON.stringify(payload));
-  }
+// Send command to backend
+function sendCommand(type, paths, extra = {}) {
+  ws.send(JSON.stringify({ type, paths, ...extra }));
+}
 
-  ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-    const maxLines = 1000;
+// Global WebSocket handler
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  const panel = panels.get(msg.path);
+  if (!panel) return;
 
-    if (msg.type === "log") {
-      const panelObj = panels.get(msg.path);
-      if (panelObj) {
-        const div = document.createElement("div");
-        div.textContent = msg.line;
-        panelObj.logsEl.appendChild(div);
-        panelObj.logsEl.scrollTop = panelObj.logsEl.scrollHeight;
+  if (msg.type === "log") {
+    const tailEl = panel.tailEl;
+    const panelDiv = panel.panelDiv;
+    const div = document.createElement("div");
+    div.textContent = msg.line;
+    tailEl.appendChild(div);
 
-        while (panelObj.logsEl.childNodes.length > maxLines) {
-          panelObj.logsEl.removeChild(panelObj.logsEl.firstChild);
-        }
-      }
-    } else if (msg.type === "notify") {
-      alert(`Pattern matched in ${msg.path}`);
+    // Smart auto-scroll inside tail
+    const { scrollTop, scrollHeight, clientHeight } = tailEl;
+    const autoScroll = scrollTop + clientHeight >= scrollHeight - 20;
+    if (autoScroll) {
+      tailEl.scrollTop = tailEl.scrollHeight;
+
+      // Scroll panel into view so newest lines are visible
+      panelDiv.scrollIntoView({ behavior: "smooth", block: "end" });
     }
-  };
-
-  function createPanel(path) {
-    if (panels.has(path)) return;
-
-    const panelDiv = document.createElement("div");
-    panelDiv.className = "log-panel";
-    panelDiv.innerHTML = `
-      <div class="log-panel-header">${path}</div>
-      <div class="panel-controls">
-        <input type="text" class="pattern" placeholder="Search pattern (regex)">
-        <label><input type="checkbox" class="notify"> Notify on match</label>
-        <div class="panel-buttons" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:8px;">
-          <button class="start">Start</button>
-          <button class="stop">Stop</button>
-          <button class="clear">Clear</button>
-          <button class="remove">Remove</button>
-        </div>
-      </div>
-      <div class="logs"></div>
-    `;
-    panelsContainer.appendChild(panelDiv);
-
-    const patternInput = panelDiv.querySelector(".pattern");
-    const notifyInput = panelDiv.querySelector(".notify");
-    const startBtn = panelDiv.querySelector(".start");
-    const stopBtn = panelDiv.querySelector(".stop");
-    const clearBtn = panelDiv.querySelector(".clear");
-    const removeBtn = panelDiv.querySelector(".remove");
-    const logsEl = panelDiv.querySelector(".logs");
-
-    // Start tailing
-    startBtn.onclick = () => {
-      sendCommand("set_pattern", [path], { pattern: patternInput.value });
-      sendCommand("set_notify", [path], { enabled: notifyInput.checked });
-      sendCommand("start_tailing", [path]);
-    };
-
-    // Stop tailing
-    stopBtn.onclick = () => sendCommand("stop_tailing", [path]);
-
-    // Clear logs
-    clearBtn.onclick = () => logsEl.innerHTML = "";
-
-    // Remove panel and stop tailing
-    removeBtn.onclick = () => {
-      sendCommand("stop_tailing", [path]);
-      panelsContainer.removeChild(panelDiv);
-      panels.delete(path);
-    };
-
-    panels.set(path, { logsEl, patternInput, notifyInput });
   }
 
-  // Add paths
-  document.getElementById("add-path").onclick = () => {
-    const paths = pathInput.value.split("\n").map(p => p.trim()).filter(Boolean);
-    paths.forEach(path => {
-      createPanel(path);
-      sendCommand("watch_paths", [path]);
+  if (msg.type === "search_result") {
+    const searchEl = panel.searchEl;
+    searchEl.innerHTML = "";
+    msg.lines.forEach(line => {
+      const div = document.createElement("div");
+      div.textContent = line;
+      div.classList.add("match");
+      searchEl.appendChild(div);
     });
-    pathInput.value = "";
+  }
+};
+
+// Create a new log panel
+function createPanel(path) {
+  if (panels.has(path)) return;
+
+  const panelDiv = document.createElement("div");
+  panelDiv.className = "log-panel";
+
+  panelDiv.innerHTML = `
+    <div class="log-panel-header">${path}</div>
+    <div class="panel-controls">
+      <input type="text" class="pattern" placeholder="Search">
+      <label><input type="checkbox" class="regex"> Regex</label>
+      <button class="search">Search</button>
+      <button class="start">Start</button>
+      <button class="stop">Stop</button>
+      <button class="clear">Clear</button>
+      <button class="remove">Remove</button>
+    </div>
+    <div class="logs-container">
+      <div class="tail-logs"></div>
+      <button class="resume-scroll">Resume Auto-Scroll</button>
+      <div class="search-results"></div>
+    </div>
+  `;
+
+  panelsContainer.appendChild(panelDiv);
+
+  const tailEl = panelDiv.querySelector(".tail-logs");
+  const searchEl = panelDiv.querySelector(".search-results");
+  const resumeBtn = panelDiv.querySelector(".resume-scroll");
+  const patternInput = panelDiv.querySelector(".pattern");
+  const regexInput = panelDiv.querySelector(".regex");
+  const searchBtn = panelDiv.querySelector(".search");
+
+  // Detect manual scrolling to pause auto-scroll
+  tailEl.addEventListener("scroll", () => {
+    const { scrollTop, scrollHeight, clientHeight } = tailEl;
+    const atBottom = scrollTop + clientHeight >= scrollHeight - 20;
+    resumeBtn.style.display = atBottom ? "none" : "block";
+  });
+
+  // Resume auto-scroll button
+  resumeBtn.onclick = () => {
+    tailEl.scrollTop = tailEl.scrollHeight;
+    resumeBtn.style.display = "none";
   };
 
-  // Stop all panels
-  document.getElementById("stop-all").onclick = () => {
-    panels.forEach((_, path) => sendCommand("stop_tailing", [path]));
+  // SEARCH → RUST
+  searchBtn.onclick = () => {
+    const pattern = patternInput.value.trim();
+    if (!pattern) return;
+
+    sendCommand("search", [path], {
+      pattern,
+      regex: regexInput.checked
+    });
   };
+
+  panelDiv.querySelector(".start").onclick = () =>
+    sendCommand("start_tailing", [path]);
+
+  panelDiv.querySelector(".stop").onclick = () =>
+    sendCommand("stop_tailing", [path]);
+
+  panelDiv.querySelector(".clear").onclick = () => {
+    tailEl.innerHTML = "";
+    searchEl.innerHTML = "";
+  };
+
+  panelDiv.querySelector(".remove").onclick = () => {
+    sendCommand("stop_tailing", [path]);
+    panels.delete(path);
+    panelDiv.remove();
+  };
+
+  panels.set(path, { tailEl, searchEl, panelDiv });
+}
+
+// Add paths button
+document.getElementById("add-path").onclick = () => {
+  const paths = pathInput.value.split("\n").map(p => p.trim()).filter(Boolean);
+  paths.forEach(path => {
+    createPanel(path);
+    sendCommand("watch_paths", [path]);
+  });
+  pathInput.value = "";
+};
+
+// Stop all button
+document.getElementById("stop-all").onclick = () => {
+  panels.forEach((_, path) => sendCommand("stop_tailing", [path]));
+};
 </script>
-
 </body>
 </html>

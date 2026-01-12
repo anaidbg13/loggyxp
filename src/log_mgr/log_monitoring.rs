@@ -11,6 +11,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::collections::HashMap;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::UnboundedSender;
+use crate::log_mgr::rust_server::WsEventTx;
 
 #[derive(Debug)]
 pub enum WatchCommand {
@@ -32,7 +33,7 @@ pub(crate) fn read_and_print_log(log_path: &Path) -> String{
     let contents = fs::read_to_string(log_path)
         .expect("");
 
-    // println!("Log:\n{contents}");
+    println!("Log:\n{contents}");
     return contents;
 }
 
@@ -45,7 +46,7 @@ pub fn read_only_log(log_path: &Path) -> String{
 
 
 
-pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::Sender<(String, String)>) -> thread::JoinHandle<()> {
+pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::Sender<WsEventTx>) -> thread::JoinHandle<()> {
 
     thread::spawn(move || {
         let (event_tx, event_rx) = std::sync::mpsc::channel();
@@ -127,7 +128,11 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                             match tail_new_data(state) {
                                 Ok(new_data) => {
                                     for line in new_data.lines() {
-                                        let _ = log_tx.send((path.to_string_lossy().to_string(), line.to_string()));
+                                        //let _ = log_tx.send((path.to_string_lossy().to_string(), line.to_string()));
+                                        let _ = log_tx.send(WsEventTx::Log {
+                                            path: path.to_string_lossy().to_string(),
+                                            line: line.to_string()
+                                        });
                                     }
                                 }
                                 Err(e) => {
@@ -164,6 +169,7 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
 
 
 fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
+    
     let mut file = match File::open(&state.path) {
         Ok(f) => f,
         Err(e) => {
@@ -209,7 +215,8 @@ fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
     Ok(numbered_buf)
 }
 
-pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<(String, String)>) {
+pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>) {
+
     let contents = match fs::read_to_string(log_path) {
         Ok(c) => c,
         Err(e) => {
@@ -221,7 +228,10 @@ pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<(String, S
     let mut count = 0;
     for (i, line) in contents.lines().enumerate() {
         let numbered_line = format!("{}: {}", i + 1, line);
-        let _ = log_tx.send((log_path.to_string_lossy().to_string(), numbered_line));
+        let _ = log_tx.send(WsEventTx::Log {
+            path: log_path.to_string_lossy().to_string(),
+            line: numbered_line,
+        });
         count += 1;
         if count > 100 {
             count = 0;
