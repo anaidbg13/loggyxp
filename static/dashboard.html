@@ -64,10 +64,10 @@
     flex: 1 1 400px;
     display: flex;
     flex-direction: column;
-    height: 600px;          /* default user height */
-    min-height: 300px;      /* min height for user resize */
-    max-height: 1000px;     /* max height for user resize */
-    resize: vertical;       /* user can drag vertically */
+    height: 600px;
+    min-height: 300px;
+    max-height: 1000px;
+    resize: vertical;
     overflow: hidden;
   }
 
@@ -92,17 +92,63 @@
     overflow: hidden;
   }
 
-  .tail-logs, .search-results {
-    background: #1a1a2e;
+  .search-results {
+    background: #111;
     border-radius: 5px;
     padding: 6px;
-    overflow-y: auto;       /* scroll appears if content overflows */
     font-size: 0.9rem;
     line-height: 1.3rem;
+    margin-top: 8px;
+    min-height: 40px;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+
+  .panel-bottom {
+  background: #23233a;
+  border-radius: 5px;
+  margin-top: 8px;
+  padding: 8px;
+  flex: 0 0 40%;
+  max-height: 40%;
+  min-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+  .panel-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .panel-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .panel-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   .tail-logs {
-    flex: 2;                /* bigger than search results */
+    background: #1a1a2e;
+    border-radius: 5px;
+    padding: 6px;
+    font-size: 0.9rem;
+    line-height: 1.3rem;
+    flex: 1 1 60%;
+    min-height: 0;
+    max-height: 60%;
+    overflow-y: auto;
+    overflow-x: auto;
   }
 
   .search-results {
@@ -191,22 +237,24 @@ function createPanel(path) {
 
   const panelDiv = document.createElement("div");
   panelDiv.className = "log-panel";
-
   panelDiv.innerHTML = `
     <div class="log-panel-header">${path}</div>
-    <div class="panel-controls">
-      <input type="text" class="pattern" placeholder="Search">
-      <label><input type="checkbox" class="regex"> Regex</label>
-      <button class="search">Search</button>
-      <button class="start">Start</button>
-      <button class="stop">Stop</button>
-      <button class="clear">Clear</button>
-      <button class="remove">Remove</button>
-    </div>
-    <div class="logs-container">
+    <div class="panel-content">
       <div class="tail-logs"></div>
-      <button class="resume-scroll">Resume Auto-Scroll</button>
-      <div class="search-results"></div>
+      <div class="panel-bottom">
+        <div class="panel-buttons">
+          <button class="start">Start</button>
+          <button class="stop">Stop</button>
+          <button class="clear">Clear</button>
+          <button class="remove">Remove</button>
+        </div>
+        <div class="panel-controls">
+          <input type="text" class="pattern" placeholder="Search">
+          <label><input type="checkbox" class="regex"> Regex</label>
+          <button class="search">Search</button>
+        </div>
+        <div class="search-results"></div>
+      </div>
     </div>
   `;
 
@@ -214,23 +262,17 @@ function createPanel(path) {
 
   const tailEl = panelDiv.querySelector(".tail-logs");
   const searchEl = panelDiv.querySelector(".search-results");
-  const resumeBtn = panelDiv.querySelector(".resume-scroll");
   const patternInput = panelDiv.querySelector(".pattern");
   const regexInput = panelDiv.querySelector(".regex");
   const searchBtn = panelDiv.querySelector(".search");
 
+  let autoScroll = true;
+
   // Detect manual scrolling to pause auto-scroll
   tailEl.addEventListener("scroll", () => {
     const { scrollTop, scrollHeight, clientHeight } = tailEl;
-    const atBottom = scrollTop + clientHeight >= scrollHeight - 20;
-    resumeBtn.style.display = atBottom ? "none" : "block";
+    autoScroll = scrollTop + clientHeight >= scrollHeight - 20;
   });
-
-  // Resume auto-scroll button
-  resumeBtn.onclick = () => {
-    tailEl.scrollTop = tailEl.scrollHeight;
-    resumeBtn.style.display = "none";
-  };
 
   // SEARCH → RUST
   searchBtn.onclick = () => {
@@ -260,8 +302,38 @@ function createPanel(path) {
     panelDiv.remove();
   };
 
-  panels.set(path, { tailEl, searchEl, panelDiv });
+  panels.set(path, { tailEl, searchEl, panelDiv, autoScroll: () => autoScroll });
 }
+
+// Update log appending logic for auto-scroll
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  const panel = panels.get(msg.path);
+  if (!panel) return;
+
+  if (msg.type === "log") {
+    const tailEl = panel.tailEl;
+    const div = document.createElement("div");
+    div.textContent = msg.line;
+    tailEl.appendChild(div);
+
+    // Only scroll if user hasn't scrolled up
+    if (panel.autoScroll()) {
+      tailEl.scrollTop = tailEl.scrollHeight;
+    }
+  }
+
+  if (msg.type === "search_result") {
+    const searchEl = panel.searchEl;
+    searchEl.innerHTML = "";
+    msg.lines.forEach(line => {
+      const div = document.createElement("div");
+      div.textContent = line;
+      div.classList.add("match");
+      searchEl.appendChild(div);
+    });
+  }
+};
 
 // Add paths button
 document.getElementById("add-path").onclick = () => {
@@ -280,3 +352,4 @@ document.getElementById("stop-all").onclick = () => {
 </script>
 </body>
 </html>
+
