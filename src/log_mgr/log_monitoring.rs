@@ -61,9 +61,10 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                         if watchers.contains_key(&path) {
                             continue;
                         }
+                        let mut old_lines= 0;
 
                         if path.exists() {
-                            send_old_log_lines(&path, &log_tx);
+                            old_lines = send_old_log_lines(&path, &log_tx);
                         }
 
                         println!("Watching {:?}", path);
@@ -96,7 +97,7 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                         states.insert(path.clone(), TailState {
                             path: path.clone(),
                             offset,
-                            line_number: 0,
+                            line_number: old_lines,
                         });
                     }
 
@@ -169,7 +170,7 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
 
 
 fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
-    
+
     let mut file = match File::open(&state.path) {
         Ok(f) => f,
         Err(e) => {
@@ -215,16 +216,16 @@ fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
     Ok(numbered_buf)
 }
 
-pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>) {
+pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>)-> usize {
 
     let contents = match fs::read_to_string(log_path) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Failed to read {}: {}", log_path.display(), e);
-            return;
+            return 0;
         }
     };
-
+    let mut keep_line_nr = 0;
     let mut count = 0;
     for (i, line) in contents.lines().enumerate() {
         let numbered_line = format!("{}: {}", i + 1, line);
@@ -232,10 +233,13 @@ pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>
             path: log_path.to_string_lossy().to_string(),
             line: numbered_line,
         });
+        keep_line_nr= i+1;
+
         count += 1;
         if count > 100 {
             count = 0;
             thread::sleep(Duration::from_millis(5));
         }
     }
+    return keep_line_nr;
 }
