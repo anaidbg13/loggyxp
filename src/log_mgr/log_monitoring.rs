@@ -10,7 +10,6 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::collections::HashMap;
 use tokio::sync::broadcast;
-use tokio::sync::mpsc::UnboundedSender;
 use crate::log_mgr::rust_server::WsEventTx;
 
 #[derive(Debug)]
@@ -238,7 +237,7 @@ pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>
         count += 1;
         if count > 100 {
             count = 0;
-            thread::sleep(Duration::from_millis(5));
+            //thread::sleep(Duration::from_millis(3));
         }
     }
     return keep_line_nr;

@@ -17,7 +17,7 @@ pub fn main() {
     println!("main");
 
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
-    let (log_tx, _log_rx) = tokio::sync::broadcast::channel::<WsEventTx>(1024);
+    let (log_tx, _log_rx) = tokio::sync::broadcast::channel::<WsEventTx>(8192);
 
     // Start server
     thread::spawn({
@@ -116,7 +116,7 @@ fn call_search_string(log_tx: &broadcast::Sender<WsEventTx>, pattern: &String, p
         path: paths[0].to_string_lossy().to_string(),
         lines: lines.clone(),
     });
-    thread::sleep(Duration::from_millis(5));
+   // thread::sleep(Duration::from_millis(5));
 
 
 }
@@ -132,7 +132,7 @@ fn get_search_input_with_regex(log_tx: &broadcast::Sender<WsEventTx>, re_pattern
             lines: matches,
         });
 
-    thread::sleep(Duration::from_millis(5));
+    //thread::sleep(Duration::from_millis(5));
 
 }
 
