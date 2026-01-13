@@ -189,6 +189,7 @@ const ws = new WebSocket("ws://localhost:3000/ws");
 const panelsContainer = document.getElementById("panels-container");
 const pathInput = document.getElementById("paths");
 const panels = new Map();
+const SCROLL_DELTA = 1;
 
 // Send command to backend
 function sendCommand(type, paths, extra = {}) {
@@ -210,7 +211,7 @@ ws.onmessage = (event) => {
 
     // Smart auto-scroll inside tail
     const { scrollTop, scrollHeight, clientHeight } = tailEl;
-    const autoScroll = scrollTop + clientHeight >= scrollHeight - 20;
+    const autoScroll = scrollTop + clientHeight >= scrollHeight - SCROLL_DELTA;
     if (autoScroll) {
       tailEl.scrollTop = tailEl.scrollHeight;
 
@@ -241,6 +242,7 @@ function createPanel(path) {
     <div class="log-panel-header">${path}</div>
     <div class="panel-content">
       <div class="tail-logs"></div>
+      <button class="resume-scroll resume-scroll" style="display:none;">Resume Scrolling</button>
       <div class="panel-bottom">
         <div class="panel-buttons">
           <button class="start">Start</button>
@@ -268,10 +270,18 @@ function createPanel(path) {
 
   let autoScroll = true;
 
-  // Detect manual scrolling to pause auto-scroll
+  const resumeBtn = panelDiv.querySelector(".resume-scroll");
+
   tailEl.addEventListener("scroll", () => {
     const { scrollTop, scrollHeight, clientHeight } = tailEl;
-    autoScroll = scrollTop + clientHeight >= scrollHeight - 20;
+    // If user is NOT at the bottom, pause auto-scroll
+    if (scrollTop + clientHeight < scrollHeight - SCROLL_DELTA) {
+      autoScroll = false;
+      resumeBtn.style.display = "inline-block";
+    } else {
+      autoScroll = true;
+      resumeBtn.style.display = "none";
+    }
   });
 
   // SEARCH → RUST
@@ -283,6 +293,12 @@ function createPanel(path) {
       pattern,
       regex: regexInput.checked
     });
+  };
+
+  resumeBtn.onclick = () => {
+    tailEl.scrollTop = tailEl.scrollHeight;
+    autoScroll = true;
+    resumeBtn.style.display = "none";
   };
 
   panelDiv.querySelector(".start").onclick = () =>
@@ -302,7 +318,7 @@ function createPanel(path) {
     panelDiv.remove();
   };
 
-  panels.set(path, { tailEl, searchEl, panelDiv, autoScroll: () => autoScroll });
+  panels.set(path, { tailEl, searchEl, panelDiv, autoScroll: () => autoScroll, resumeBtn });
 }
 
 // Update log appending logic for auto-scroll

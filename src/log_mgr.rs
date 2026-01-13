@@ -81,11 +81,14 @@ pub fn get_content(paths: &Vec<PathBuf>) -> String
 /*log_filtering functions*/
 fn call_filter_lines(content: &String, word: &String)
 {
+    /*dummy code to test json parsing*/
+    /*
     log_filtering::parse_json(&content).expect("TODO: panic message");
     let keys = log_filtering::filter_by_key_json(&content, &word);
     let content_in = log_filtering::filter_lines(&content, &word);
     println!("filtered lines with word -{}-: \n{}",word, content_in);
     println!("Matches found for key {} : {} ",word, keys);
+    */
 
 }
 
@@ -96,22 +99,44 @@ fn call_search_string(log_tx: &broadcast::Sender<WsEventTx>, pattern: &String, p
     let content = get_content(&paths);
     let lines = search_engine::search_string(&content, &pattern);
     println!("lines with pattern {}: {:?}",pattern, lines);
+    let mut count = 0;
+    let liner_iter = lines.clone().into_iter();
+    /*for line in liner_iter {
+        let _ = log_tx.send(WsEventTx::SearchResult {
+            path: paths[0].to_string_lossy().to_string(),
+            lines: lines.clone(),
+        });
+        count = count+1;
+        if count > 50 {
+            thread::sleep(Duration::from_millis(5));
+        }
 
+    }*/
     let _ = log_tx.send(WsEventTx::SearchResult {
         path: paths[0].to_string_lossy().to_string(),
         lines: lines.clone(),
     });
+    thread::sleep(Duration::from_millis(5));
+
+
 }
-fn get_search_input_with_regex(content: &String)
+fn get_search_input_with_regex(log_tx: &broadcast::Sender<WsEventTx>, re_pattern: &String, paths: Vec<PathBuf>)
 {
-    //read users input and format it
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
-    let re_pattern: String = input.trim().parse().unwrap();
+    let content = get_content(&paths);
 
-    let mut matches = search_input_pattern(&content,&re_pattern);
+    let  matches = search_input_pattern(&content,&re_pattern);
 
-    if matches.last().unwrap().to_string() == "valid"
+    let mut count = 0;
+        let _ = log_tx.send(WsEventTx::SearchResult {
+            path: paths[0].to_string_lossy().to_string(),
+            lines: matches,
+        });
+
+    thread::sleep(Duration::from_millis(5));
+
+}
+
+    /*if matches.last().unwrap().to_string() == "valid"
     {
         //after checking validity, remove last_index
         let last_index = matches.len() - 1;
@@ -131,7 +156,7 @@ fn get_search_input_with_regex(content: &String)
     }
 
 
-}
+}*/
 
 pub fn check_patterns(log_path: &Path) {
 

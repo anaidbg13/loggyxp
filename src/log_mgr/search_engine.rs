@@ -2,7 +2,7 @@ extern crate regex;
 use regex::Regex;
 
 
-pub fn search_string(content: &String, word: &String) -> Vec<usize> {
+pub fn search_string(content: &String, word: &String) -> Vec<String> {
     let mut lines = Vec::new();
 
     if word.is_empty() {
@@ -13,7 +13,7 @@ pub fn search_string(content: &String, word: &String) -> Vec<usize> {
 
     for (idx, line) in content.lines().enumerate() {
         if line.to_lowercase().contains(&needle) {
-            lines.push(idx + 1);
+            lines.push(format!("{}: {}", idx + 1, line));
         }
     }
 
@@ -39,34 +39,29 @@ pub fn search_input_pattern(content: &String, pattern: &String) -> Vec<String>
 
     match Regex::new(pattern) {
         Ok(regex) => {
-            // Collect all matches as strings
-                matches = regex
-                .find_iter(content)
-                .map(|m| m.as_str().to_string())
+            matches = content
+                .lines()
+                .enumerate()
+                .filter_map(|(idx, line)| {
+                    regex.is_match(line)
+                        .then(|| format!("{}: {}", idx + 1, line))
+                })
                 .collect();
-
-            if !matches.is_empty() {
-                println!("{} has {} matches", pattern, matches.len());
-                matches.push(String::from("valid"));
+            /*if !matches.is_empty() {
                 return matches;
             } else {
                 println!("Could not find any matches");
-                matches.push(String::from("invalid"));
+                //matches.push(String::from("Could not find any matches"));
                 return matches;
-            }
+            }*/
+            return matches;
         }
         Err(_) => {
             println!("Invalid pattern");
-            matches.push(String::from("invalid"));
+            matches.push(String::from("loggyxp: invalid regex pattern"));
             return matches;
         }
     }
-
-    /*if let Ok(re) = Regex::new(&pattern) {
-        println!("Regex is valid!");
-    } else {
-        eprintln!("Regex pattern is invalid");
-    }*/
 }
 
 pub fn remove_duplicates(matches: &Vec<String>) -> Vec<String>

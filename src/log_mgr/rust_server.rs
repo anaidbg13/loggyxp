@@ -63,7 +63,7 @@ pub enum WsEventTx {
     #[serde(rename = "search_result")]
     SearchResult {
         path: String,
-        lines: Vec<usize>,
+        lines: Vec<String>,
     },
 }
 
@@ -182,8 +182,15 @@ async fn handle_socket(
                         .into_iter()
                         .map(PathBuf::from)
                         .collect();
+                    
+                    if regex {
+                        log_mgr::get_search_input_with_regex(&state.log_tx, &pattern, paths_buf);
+                    }
+                    else {
+                        log_mgr::call_search_string(&state.log_tx, &pattern, paths_buf);
+                    }
 
-                    log_mgr::call_search_string(&state.log_tx, &pattern, paths_buf);
+                    
                 }
                 Err(e) => {
                     eprintln!("Invalid WS message: {}", e);
