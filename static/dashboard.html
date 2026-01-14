@@ -221,15 +221,20 @@ ws.onmessage = (event) => {
   }
 
   if (msg.type === "search_result") {
-    const searchEl = panel.searchEl;
-    searchEl.innerHTML = "";
-    msg.lines.forEach(line => {
+  const searchEl = panel.searchEl;
+  const hasNormal = msg.lines.some(line => !line.includes("NOTIFICATION:"));
+  if (hasNormal) searchEl.innerHTML = "";
+  msg.lines.forEach(line => {
       const div = document.createElement("div");
       div.textContent = line;
-      div.classList.add("match");
-      searchEl.appendChild(div);
+      if (line.includes("NOTIFICATION:")) {
+        div.classList.add("match-current");
+      } else {
+        searchEl.innerHTML = ""; // clear for normal search
+        div.classList.add("match");
+      }
     });
-  }
+  } 
 };
 
 // Create a new log panel
@@ -239,36 +244,56 @@ function createPanel(path) {
   const panelDiv = document.createElement("div");
   panelDiv.className = "log-panel";
   panelDiv.innerHTML = `
-    <div class="log-panel-header">${path}</div>
-    <div class="panel-content">
-      <div class="tail-logs"></div>
-      <button class="resume-scroll resume-scroll" style="display:none;">Resume Scrolling</button>
-      <div class="panel-bottom">
-        <div class="panel-buttons">
-          <button class="start">Start</button>
-          <button class="stop">Stop</button>
-          <button class="clear">Clear</button>
-          <button class="remove">Remove</button>
-        </div>
-        <div class="panel-controls">
-          <input type="text" class="pattern" placeholder="Search">
-          <label><input type="checkbox" class="regex"> Regex</label>
-          <button class="search">Search</button>
-        </div>
-        <div class="search-results"></div>
+  <div class="log-panel-header">${path}</div>
+  <div class="panel-content">
+    <div class="panel-controls" style="flex-direction:column;align-items:flex-start;">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+        <button class="start">Start</button>
+        <button class="stop">Stop</button>
+        <button class="clear">Clear</button>
+        <button class="remove">Remove</button>
+        <input type="text" class="pattern" placeholder="Search pattern" />
+        <label><input type="checkbox" class="search-regex" /> Regex</label>
+        <button class="search">Search</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+        <input type="text" class="panel-filter" placeholder="Filter lines (substring)" />
+        <label><input type="checkbox" class="filter-checkbox" /> Regex</label>
+        <button class="apply-filter">Apply Filter</button>
+        <span style="display:inline-block; width:24px;"></span>
+        <input type="text" class="panel-notify" placeholder="Notify when (substring)" />
+        <label><input type="checkbox" class="notify-checkbox" /> Regex</label>
+        <button class="apply-notify">Set Notification</button>
       </div>
     </div>
-  `;
+    <div class="logs-container">
+      <div class="tail-logs"></div>
+      <button class="resume-scroll">Resume Auto-Scroll</button>
+    </div>
+    <div class="panel-bottom">
+      <div class="search-results"></div>
+    </div>
+  </div>
+`;
 
   panelsContainer.appendChild(panelDiv);
 
   const tailEl = panelDiv.querySelector(".tail-logs");
   const searchEl = panelDiv.querySelector(".search-results");
   const patternInput = panelDiv.querySelector(".pattern");
-  const regexInput = panelDiv.querySelector(".regex");
+  const regexInput = panelDiv.querySelector(".search-regex");
   const searchBtn = panelDiv.querySelector(".search");
+  const filterInput = panelDiv.querySelector(".panel-filter");
+  const filterCheckbox = panelDiv.querySelector(".filter-checkbox");
+  const applyFilterBtn = panelDiv.querySelector(".apply-filter");
+  const notifyInput = panelDiv.querySelector(".panel-notify");
+  const notifyCheckbox = panelDiv.querySelector(".notify-checkbox");
+  const applyNotifyBtn = panelDiv.querySelector(".apply-notify");
+
 
   let autoScroll = true;
+  panelDiv.filterValue = "";
+  panelDiv.notifyValue = "";
 
   const resumeBtn = panelDiv.querySelector(".resume-scroll");
 
@@ -283,6 +308,20 @@ function createPanel(path) {
       resumeBtn.style.display = "none";
     }
   });
+
+applyFilterBtn.onclick = () => {
+  const pattern = filterInput.value.trim();
+  const enabled = filterCheckbox.checked;
+  //panelDiv.filterValue = enabled ? filterValue : "";
+  sendCommand("Filter_by", [path], {pattern, regex: enabled });
+};
+
+applyNotifyBtn.onclick = () => {
+  const pattern = notifyInput.value.trim();
+  const enabled = notifyCheckbox.checked;
+  //panelDiv.notifyValue = enabled ? notifyValue : "";
+  sendCommand("Notify_when", [path], {pattern, regex: enabled });
+};
 
   // SEARCH → RUST
   searchBtn.onclick = () => {
@@ -300,6 +339,8 @@ function createPanel(path) {
     autoScroll = true;
     resumeBtn.style.display = "none";
   };
+
+
 
   panelDiv.querySelector(".start").onclick = () =>
     sendCommand("start_tailing", [path]);
@@ -341,11 +382,16 @@ ws.onmessage = (event) => {
 
   if (msg.type === "search_result") {
     const searchEl = panel.searchEl;
-    searchEl.innerHTML = "";
+    const hasNormal = msg.lines.some(line => !line.includes("NOTIFICATION:"));
+    if (hasNormal) searchEl.innerHTML = "";
     msg.lines.forEach(line => {
       const div = document.createElement("div");
       div.textContent = line;
+      if (line.includes("NOTIFICATION:")) {
+      div.classList.add("match-current"); // Use red highlight
+      } else {
       div.classList.add("match");
+      }
       searchEl.appendChild(div);
     });
   }
