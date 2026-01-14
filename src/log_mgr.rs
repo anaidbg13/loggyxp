@@ -1,10 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::{io, thread};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use search_engine::search_input_pattern;
 use log_monitoring::WatchCommand;
 use log_monitoring::start_watcher_manager;
+use crate::log_mgr::log_monitoring::LogContextData;
 use crate::log_mgr::rust_server::WsEventTx;
 
 pub mod log_monitoring;
@@ -19,17 +22,27 @@ pub fn main() {
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
     let (log_tx, _log_rx) = tokio::sync::broadcast::channel::<WsEventTx>(8192);
 
+    let context = Arc::new(Mutex::new(LogContextData {
+        filters: HashMap::new(),
+        notifies: HashMap::new(),
+        filters_regex: HashMap::new(),
+        notifies_regex: HashMap::new(),
+    }));
+
+    let context_for_watcher = Arc::clone(&context);
+    let context_for_server = Arc::clone(&context);
+
     // Start server
     thread::spawn({
         let cmd_tx = cmd_tx.clone();
         let log_tx = log_tx.clone();
         move || {
-            rust_server::run_server(cmd_tx, log_tx);
+            rust_server::run_server(cmd_tx, log_tx, context_for_server);
         }
     });
 
     // Start watcher
-    let _ = start_watcher_manager(cmd_rx, log_tx);
+    let _ = start_watcher_manager(cmd_rx, log_tx, context_for_watcher);
 
     loop {
         std::thread::park();
@@ -101,17 +114,6 @@ fn call_search_string(log_tx: &broadcast::Sender<WsEventTx>, pattern: &String, p
     println!("lines with pattern {}: {:?}",pattern, lines);
     let mut count = 0;
     let liner_iter = lines.clone().into_iter();
-    /*for line in liner_iter {
-        let _ = log_tx.send(WsEventTx::SearchResult {
-            path: paths[0].to_string_lossy().to_string(),
-            lines: lines.clone(),
-        });
-        count = count+1;
-        if count > 50 {
-            thread::sleep(Duration::from_millis(5));
-        }
-
-    }*/
     let _ = log_tx.send(WsEventTx::SearchResult {
         path: paths[0].to_string_lossy().to_string(),
         lines: lines.clone(),
@@ -158,12 +160,18 @@ fn get_search_input_with_regex(log_tx: &broadcast::Sender<WsEventTx>, re_pattern
 
 }*/
 
-pub fn check_patterns(log_path: &Path) {
+pub fn check_patterns(line: &String, pattern: &String) {
 
-    let pattern = String::from("bbbbb");
-    let content = log_monitoring::read_only_log(log_path);
-    //let found = call_search_string(&content, pattern);
-    // if found {
-    //     log_notification::notify_user();
-    // }
+
+
+}
+
+
+pub fn call_set_notification(log_tx: &broadcast::Sender<WsEventTx>, pattern: &String, log_path: &Vec<PathBuf>) {
+    
+}
+
+pub fn call_set_notification_regex(log_tx: &broadcast::Sender<WsEventTx>, pattern: &String, log_path: &Vec<PathBuf>) {
+
+
 }

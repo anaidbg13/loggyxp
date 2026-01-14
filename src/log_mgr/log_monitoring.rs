@@ -9,8 +9,10 @@ use crate::log_mgr;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use crate::log_mgr::rust_server::WsEventTx;
+use crate::log_mgr::search_engine::search_string;
 
 #[derive(Debug)]
 pub enum WatchCommand {
@@ -22,6 +24,13 @@ struct TailState {
     path: PathBuf,
     offset: u64,
     line_number: usize, // Track line numbers
+}
+
+pub struct LogContextData {
+    pub(crate) filters: HashMap<PathBuf, String>,
+    pub(crate) notifies: HashMap<PathBuf, String>,
+    pub(crate) filters_regex: HashMap<PathBuf, String>,
+    pub(crate) notifies_regex: HashMap<PathBuf, String>,
 }
 
 
@@ -45,7 +54,7 @@ pub fn read_only_log(log_path: &Path) -> String{
 
 
 
-pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::Sender<WsEventTx>) -> thread::JoinHandle<()> {
+pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::Sender<WsEventTx>, context: Arc<Mutex<LogContextData>>) -> thread::JoinHandle<()> {
 
     thread::spawn(move || {
         let (event_tx, event_rx) = std::sync::mpsc::channel();
@@ -133,17 +142,11 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                                             path: path.to_string_lossy().to_string(),
                                             line: line.to_string()
                                         });
+                                        LogContextData::on_event_modified(&context.lock().unwrap(), &path, line, &log_tx);
                                     }
                                 }
                                 Err(e) => {
                                     eprintln!("Failed to read {}: {}", path.display(), e);
-                                }
-                            }
-
-                            // Optional: pattern checking
-                            if let Some(first_path) = event.paths.get(0) {
-                                if first_path.exists() {
-                                    log_mgr::check_patterns(first_path);
                                 }
                             }
                         }
@@ -241,4 +244,47 @@ pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>
         }
     }
     return keep_line_nr;
+}
+
+impl LogContextData {
+    pub fn set_filter(&mut self, path: PathBuf, pattern: String) {
+       // self.filters.insert(path, pattern);
+    }
+
+    pub fn remove_filter(&mut self, path: PathBuf) {
+        self.filters.remove(&path);
+
+    }
+
+    pub fn set_notification(&mut self, paths: Vec<PathBuf>, pattern: String, regex: bool) {
+
+        println!("set notification for path {} with pattern {}", paths[0].display(), pattern);
+        let path = paths[0].clone();
+        if regex {
+            self.notifies_regex.insert(path, pattern);
+        }
+        else{
+            self.notifies.insert(path, pattern);
+        }
+
+    }
+
+    fn remove_notification(&mut self, path: PathBuf) {
+
+        self.notifies.remove(&path);
+    }
+
+    // Called when a file is modified
+    fn on_event_modified(&self, path: &PathBuf, line: &str, log_tx: &broadcast::Sender<WsEventTx>) {
+
+        if let Some(pattern) = self.notifies.get(path) {
+            if line.to_lowercase().contains(&pattern.to_lowercase()) {
+                let to_send = format!("NOTIFICATION: {}", line);
+                let _ = log_tx.send(WsEventTx::SearchResult {
+                    path: path.to_string_lossy().to_string(),
+                    lines: vec![to_send],
+                });
+            }
+        }
+    }
 }

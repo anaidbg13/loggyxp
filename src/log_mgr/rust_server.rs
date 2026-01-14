@@ -5,7 +5,7 @@ use tokio::net::TcpListener;
 use serde::{Deserialize, Serialize};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use std::sync::mpsc::Sender;
-use crate::log_mgr::log_monitoring::WatchCommand;
+use crate::log_mgr::log_monitoring::{LogContextData, WatchCommand};
 use futures_util::{StreamExt, SinkExt};
 use tokio::sync::broadcast;
 use crate::log_mgr;
@@ -19,6 +19,7 @@ struct PathRequest {
 struct AppState {
     cmd_tx: Sender<WatchCommand>,
     log_tx: broadcast::Sender<WsEventTx>,
+    context: Arc<Mutex<LogContextData>>,
 }
 
 pub struct WsClient {
@@ -31,12 +32,6 @@ enum ClientMessage {
     #[serde(rename = "watch_paths")]
     WatchPaths { paths: Vec<String> },
 
-    #[serde(rename = "set_pattern")]
-    SetPattern { paths: Vec<String>, pattern: String },
-
-    #[serde(rename = "set_notify")]
-    SetNotify { paths: Vec<String>, enabled: bool },
-
     #[serde(rename = "start_tailing")]
     StartTailing {paths: Vec<String> },
 
@@ -45,6 +40,20 @@ enum ClientMessage {
 
     #[serde(rename = "search")]
     Search {
+        paths: Vec<String>,
+        pattern: String,
+        regex: bool,
+    },
+
+    #[serde(rename = "Filter_by")]
+    FilterBy {
+        paths: Vec<String>,
+        pattern: String,
+        regex: bool,
+    },
+
+    #[serde(rename = "Notify_when")]
+    NotifyWhen {
         paths: Vec<String>,
         pattern: String,
         regex: bool,
@@ -74,7 +83,7 @@ fn load_html(path: &str) -> Html<String> {
     Html(html)
 }
 
-pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: broadcast::Sender<WsEventTx>) {
+pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: broadcast::Sender<WsEventTx>, context: Arc<Mutex<LogContextData>>) {
     let addr: SocketAddr = "127.0.0.1:3000".parse().unwrap();
     let html_path = "static/dashboard.html";
 
@@ -83,6 +92,7 @@ pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: broadcast::Sender<WsEven
     let state = AppState {
         cmd_tx,
         log_tx: log_tx.clone(),
+        context: context.clone(),
     };
 
 
@@ -120,7 +130,7 @@ pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: broadcast::Sender<WsEven
 async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
-    mut log_rx: broadcast::Receiver<WsEventTx>
+    log_rx: broadcast::Receiver<WsEventTx>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, state, log_rx))
 }
@@ -151,12 +161,6 @@ async fn handle_socket(
                         .map(PathBuf::from)
                         .collect();
                     state.cmd_tx.send(WatchCommand::Add(paths_buf)).expect("failed to create watcher");
-                }
-                Ok(ClientMessage::SetPattern { paths,pattern }) => {
-                    println!("Pattern: {}", pattern);
-                }
-                Ok(ClientMessage::SetNotify { paths, enabled }) => {
-                    println!("Notify: {}", enabled);
                 }
                 Ok(ClientMessage::StartTailing { paths}) => {
                     println!("Start tailing");
@@ -189,8 +193,23 @@ async fn handle_socket(
                     else {
                         log_mgr::call_search_string(&state.log_tx, &pattern, paths_buf);
                     }
+                }
+                Ok(ClientMessage::FilterBy { paths, pattern, regex }) => {
 
-                    
+                }
+                Ok(ClientMessage::NotifyWhen { paths, pattern, regex }) => {
+
+                    let paths_buf: Vec<_> = paths
+                        .into_iter()
+                        .map(PathBuf::from)
+                        .collect();
+
+
+                        let mut ctx = state.context.lock().unwrap();
+                    println!("Notify request: paths={:?}, pattern={}, regex={}", paths_buf, pattern, regex);
+                        ctx.set_notification(paths_buf, pattern, regex);
+
+
                 }
                 Err(e) => {
                     eprintln!("Invalid WS message: {}", e);
