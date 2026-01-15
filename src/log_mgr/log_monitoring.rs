@@ -245,6 +245,7 @@ pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>
 impl LogContextData {
     pub fn set_filter(&mut self, paths: Vec<PathBuf>, pattern: String, regex: bool) {
         let path = paths[0].clone();
+        println!("set filter for path {} with pattern {}", path.display(), pattern);
         self.filters.insert(path, pattern);
     }
 
@@ -274,18 +275,6 @@ impl LogContextData {
     // Called when a file is modified
     fn on_event_modified(&self, path: &PathBuf, line: &str, log_tx: &broadcast::Sender<WsEventTx>) {
 
-        if let Some(filter_pattern) = self.filters.get(path) {
-            if !line.to_lowercase().contains(&filter_pattern.to_lowercase()) {
-                return; // Skip this line, it doesn't match the filter
-            }
-        }
-
-        let _ = log_tx.send(WsEventTx::Log {
-            path: path.to_string_lossy().to_string(),
-            line: line.to_string()
-        });
-
-
         if let Some(pattern) = self.notifies.get(path) {
             if line.to_lowercase().contains(&pattern.to_lowercase()) {
                 let to_send = format!("NOTIFICATION: {}", line);
@@ -295,5 +284,21 @@ impl LogContextData {
                 });
             }
         }
+
+        let (line_number, content) = match line.split_once(": ") {
+            Some((num, rest)) => (num, rest),
+            None => ("", line),
+        };
+
+        if let Some(filter_pattern) = self.filters.get(path) {
+            if !content.to_lowercase().contains(&filter_pattern.to_lowercase()) {
+                return;
+            }
+        }
+
+        let _ = log_tx.send(WsEventTx::Log {
+            path: path.to_string_lossy().to_string(),
+            line: line.to_string()
+        });
     }
 }

@@ -260,11 +260,11 @@ panelDiv.innerHTML = `
       </div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
         <input type="text" class="panel-filter" placeholder="Filter lines (substring)" />
-        <label><input type="checkbox" class="filter-checkbox" /> Regex</label>
+       <!-- <label><input type="checkbox" class="filter-checkbox" /> Regex</label> -->
         <button class="apply-filter">Apply Filter</button>
         <span style="display:inline-block; width:24px;"></span>
         <input type="text" class="panel-notify" placeholder="Notify when (substring)" />
-        <label><input type="checkbox" class="notify-checkbox" /> Regex</label>
+      <!--  <label><input type="checkbox" class="notify-checkbox" /> Regex</label> -->
         <button class="apply-notify">Set Notification</button>
       </div>
     </div>
@@ -319,14 +319,14 @@ panelDiv.innerHTML = `
 
   applyFilterBtn.onclick = () => {
   const pattern = filterInput.value.trim();
-  const enabled = filterCheckbox.checked;
+  const enabled = false;
   //panelDiv.filterValue = enabled ? filterValue : "";
   sendCommand("Filter_by", [path], {pattern, regex: enabled });
   };
 
   applyNotifyBtn.onclick = () => {
   const pattern = notifyInput.value.trim();
-  const enabled = notifyCheckbox.checked;
+  const enabled = false;
   //panelDiv.notifyValue = enabled ? notifyValue : "";
   sendCommand("Notify_when", [path], {pattern, regex: enabled });
   };
