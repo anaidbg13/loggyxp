@@ -195,6 +195,15 @@ async fn handle_socket(
                     }
                 }
                 Ok(ClientMessage::FilterBy { paths, pattern, regex }) => {
+                    let paths_buf: Vec<_> = paths
+                        .into_iter()
+                        .map(PathBuf::from)
+                        .collect();
+
+
+                    let mut ctx = state.context.lock().unwrap();
+                    println!("Notify request: paths={:?}, pattern={}, regex={}", paths_buf, pattern, regex);
+                    ctx.set_filter(paths_buf, pattern, regex);
 
                 }
                 Ok(ClientMessage::NotifyWhen { paths, pattern, regex }) => {

@@ -138,10 +138,6 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                                 Ok(new_data) => {
                                     for line in new_data.lines() {
                                         //let _ = log_tx.send((path.to_string_lossy().to_string(), line.to_string()));
-                                        let _ = log_tx.send(WsEventTx::Log {
-                                            path: path.to_string_lossy().to_string(),
-                                            line: line.to_string()
-                                        });
                                         LogContextData::on_event_modified(&context.lock().unwrap(), &path, line, &log_tx);
                                     }
                                 }
@@ -247,8 +243,9 @@ pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>
 }
 
 impl LogContextData {
-    pub fn set_filter(&mut self, path: PathBuf, pattern: String) {
-       // self.filters.insert(path, pattern);
+    pub fn set_filter(&mut self, paths: Vec<PathBuf>, pattern: String, regex: bool) {
+        let path = paths[0].clone();
+        self.filters.insert(path, pattern);
     }
 
     pub fn remove_filter(&mut self, path: PathBuf) {
@@ -276,6 +273,18 @@ impl LogContextData {
 
     // Called when a file is modified
     fn on_event_modified(&self, path: &PathBuf, line: &str, log_tx: &broadcast::Sender<WsEventTx>) {
+
+        if let Some(filter_pattern) = self.filters.get(path) {
+            if !line.to_lowercase().contains(&filter_pattern.to_lowercase()) {
+                return; // Skip this line, it doesn't match the filter
+            }
+        }
+
+        let _ = log_tx.send(WsEventTx::Log {
+            path: path.to_string_lossy().to_string(),
+            line: line.to_string()
+        });
+
 
         if let Some(pattern) = self.notifies.get(path) {
             if line.to_lowercase().contains(&pattern.to_lowercase()) {

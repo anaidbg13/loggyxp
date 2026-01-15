@@ -136,6 +136,7 @@
     flex-direction: column;
     flex: 1 1 auto;
     min-height: 0;
+    height: 100%;
   }
 
   .tail-logs {
@@ -243,7 +244,7 @@ function createPanel(path) {
 
   const panelDiv = document.createElement("div");
   panelDiv.className = "log-panel";
-  panelDiv.innerHTML = `
+panelDiv.innerHTML = `
   <div class="log-panel-header">${path}</div>
   <div class="panel-content">
     <div class="panel-controls" style="flex-direction:column;align-items:flex-start;">
@@ -255,6 +256,7 @@ function createPanel(path) {
         <input type="text" class="pattern" placeholder="Search pattern" />
         <label><input type="checkbox" class="search-regex" /> Regex</label>
         <button class="search">Search</button>
+        <button class="clear-search">Clear Search</button>
       </div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
         <input type="text" class="panel-filter" placeholder="Filter lines (substring)" />
@@ -289,6 +291,8 @@ function createPanel(path) {
   const notifyInput = panelDiv.querySelector(".panel-notify");
   const notifyCheckbox = panelDiv.querySelector(".notify-checkbox");
   const applyNotifyBtn = panelDiv.querySelector(".apply-notify");
+  const clearSearchBtn = panelDiv.querySelector(".clear-search");
+ 
 
 
   let autoScroll = true;
@@ -309,19 +313,23 @@ function createPanel(path) {
     }
   });
 
-applyFilterBtn.onclick = () => {
+  clearSearchBtn.onclick = () => {
+  searchEl.innerHTML = "";
+  };
+
+  applyFilterBtn.onclick = () => {
   const pattern = filterInput.value.trim();
   const enabled = filterCheckbox.checked;
   //panelDiv.filterValue = enabled ? filterValue : "";
   sendCommand("Filter_by", [path], {pattern, regex: enabled });
-};
+  };
 
-applyNotifyBtn.onclick = () => {
+  applyNotifyBtn.onclick = () => {
   const pattern = notifyInput.value.trim();
   const enabled = notifyCheckbox.checked;
   //panelDiv.notifyValue = enabled ? notifyValue : "";
   sendCommand("Notify_when", [path], {pattern, regex: enabled });
-};
+  };
 
   // SEARCH → RUST
   searchBtn.onclick = () => {
