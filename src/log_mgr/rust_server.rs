@@ -100,8 +100,6 @@ pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: broadcast::Sender<WsEven
         context: context.clone(),
     };
 
-
-
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async move {
         let html_for_handler = html.clone();
@@ -161,7 +159,6 @@ async fn handle_socket(
         if let Message::Text(text) = msg {
             match serde_json::from_str::<ClientMessage>(&text) {
                 Ok(ClientMessage::WatchPaths { paths }) => {
-                    println!("Paths: {:?}", paths);
                     let paths_buf = paths.into_iter()
                         .map(PathBuf::from)
                         .collect();

@@ -337,8 +337,7 @@ panelDiv.innerHTML = `
     notifyInput.value = "";
     sendCommand("remove_notification", [path]);
   };
-
-  // SEARCH → RUST
+  
   searchBtn.onclick = () => {
     const pattern = patternInput.value.trim();
     if (!pattern) return;

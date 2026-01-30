@@ -13,6 +13,8 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 use crate::log_mgr::rust_server::WsEventTx;
 
+
+
 #[derive(Debug)]
 pub enum WatchCommand {
     Add(PathBuf),
@@ -21,7 +23,7 @@ pub enum WatchCommand {
 struct TailState {
     path: PathBuf,
     offset: u64,
-    line_number: usize, // Track line numbers
+    line_number: usize,
 }
 
 pub struct LogContextData {
@@ -31,8 +33,6 @@ pub struct LogContextData {
 
 
 pub(crate) fn load_log_contents(log_path: &Path) -> String{
-
-    println!("In file {}", log_path.display());
 
     let contents = fs::read_to_string(log_path)
         .expect("error reading log file");
@@ -113,7 +113,6 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
 
                 match event.kind {
                     EventKind::Modify(ModifyKind::Data(_)) => {
-                        println!("File modified {:?}", event.paths);
                         for path in &event.paths {
                             let state = states.entry(path.clone()).or_insert_with(|| {
                                 let offset = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -123,7 +122,6 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                             match tail_new_data(state) {
                                 Ok(new_data) => {
                                     for line in new_data.lines() {
-                                        //let _ = log_tx.send((path.to_string_lossy().to_string(), line.to_string()));
                                         LogContextData::on_event_modified(&context.lock().unwrap(), &path, line, &log_tx);
                                     }
                                 }
@@ -229,68 +227,14 @@ pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>
         }
     }
 
-    // send remaining lines
+    //send remaining lines
     if !batch.is_empty() {
         let _ = log_tx.send(WsEventTx::LogBatch {
             path: log_path.to_string_lossy().to_string(),
             lines: batch,
         });
     }
-
     return keep_line_nr;
 }
 
-/*Filtering and notifications */
-impl LogContextData {
-    pub fn set_filter(&mut self, paths: Vec<PathBuf>, pattern: String) {
-        let path = paths[0].clone();
-        println!("set filter for path {} with pattern {}", path.display(), pattern);
-        self.filters.insert(path, pattern);
-    }
 
-    pub fn remove_filter(&mut self, path: PathBuf) {
-        self.filters.remove(&path);
-
-    }
-
-    pub fn set_notification(&mut self, paths: Vec<PathBuf>, pattern: String) {
-
-        println!("set notification for path {} with pattern {}", paths[0].display(), pattern);
-        let path = paths[0].clone();
-        self.notifies.insert(path, pattern);
-    }
-
-    pub fn remove_notification(&mut self, path: PathBuf) {
-
-        self.notifies.remove(&path);
-    }
-
-    fn on_event_modified(&self, path: &PathBuf, line: &str, log_tx: &broadcast::Sender<WsEventTx>) {
-
-        if let Some(pattern) = self.notifies.get(path) {
-            if line.to_lowercase().contains(&pattern.to_lowercase()) {
-                let to_send = format!("NOTIFICATION: {}", line);
-                let _ = log_tx.send(WsEventTx::SearchResult {
-                    path: path.to_string_lossy().to_string(),
-                    lines: vec![to_send],
-                });
-            }
-        }
-
-        let (_line_number, content) = match line.split_once(": ") {
-            Some((num, rest)) => (num, rest),
-            None => ("", line),
-        };
-
-        if let Some(filter_pattern) = self.filters.get(path) {
-            if !content.to_lowercase().contains(&filter_pattern.to_lowercase()) {
-                return;
-            }
-        }
-
-        let _ = log_tx.send(WsEventTx::Log {
-            path: path.to_string_lossy().to_string(),
-            line: line.to_string()
-        });
-    }
-}

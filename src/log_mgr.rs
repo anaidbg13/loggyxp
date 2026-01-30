@@ -11,7 +11,8 @@ use crate::log_mgr::rust_server::WsEventTx;
 
 pub mod log_monitoring;
 pub mod search_engine;
-mod rust_server;
+pub mod rust_server;
+pub mod log_context_data;
 
 pub fn main() {
     println!("main");
@@ -76,7 +77,7 @@ fn get_search_input_with_regex(log_tx: &broadcast::Sender<WsEventTx>, re_pattern
     let content = get_content(&paths);
 
     let  matches = search_input_pattern(&content,&re_pattern);
-    
+
         let _ = log_tx.send(WsEventTx::SearchResult {
             path: paths[0].to_string_lossy().to_string(),
             lines: matches,
