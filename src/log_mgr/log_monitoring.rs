@@ -10,6 +10,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use serde_json::Value;
 use tokio::sync::broadcast;
 use crate::log_mgr::rust_server::WsEventTx;
 use crate::log_mgr::search_engine::search_string;
@@ -34,14 +35,13 @@ pub struct LogContextData {
 }
 
 
-pub(crate) fn read_and_print_log(log_path: &Path) -> String{
+pub(crate) fn load_log_contents(log_path: &Path) -> String{
 
     println!("In file {}", log_path.display());
 
     let contents = fs::read_to_string(log_path)
         .expect("");
 
-    println!("Log:\n{contents}");
     return contents;
 }
 
@@ -77,36 +77,42 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
 
                         println!("Watching {:?}", path);
 
-                        let tx = event_tx.clone();
-                        let mut watcher = match RecommendedWatcher::new(
-                            move |res| {
-                                if let Ok(event) = res {
-                                    let _ = tx.send(event);
+                        if path
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .map_or(true, |e| !e.eq_ignore_ascii_case("json"))
+                        {
+                            let tx = event_tx.clone();
+                            let mut watcher = match RecommendedWatcher::new(
+                                move |res| {
+                                    if let Ok(event) = res {
+                                        let _ = tx.send(event);
+                                    }
+                                },
+                                notify::Config::default(),
+                            ) {
+                                Ok(w) => w,
+                                Err(e) => {
+                                    eprintln!("Failed to create watcher for {}: {}", path.display(), e);
+                                    continue;
                                 }
-                            },
-                            notify::Config::default(),
-                        ) {
-                            Ok(w) => w,
-                            Err(e) => {
-                                eprintln!("Failed to create watcher for {}: {}", path.display(), e);
+                            };
+
+                            if let Err(e) = watcher.watch(&path, RecursiveMode::Recursive) {
+                                eprintln!("Failed to watch {}: {}", path.display(), e);
                                 continue;
                             }
-                        };
 
-                        if let Err(e) = watcher.watch(&path, RecursiveMode::Recursive) {
-                            eprintln!("Failed to watch {}: {}", path.display(), e);
-                            continue;
+                            watchers.insert(path.clone(), watcher);
+
+                            // Initialize tail state
+                            let offset = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                            states.insert(path.clone(), TailState {
+                                path: path.clone(),
+                                offset,
+                                line_number: old_lines,
+                            });
                         }
-
-                        watchers.insert(path.clone(), watcher);
-
-                        // Initialize tail state
-                        let offset = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                        states.insert(path.clone(), TailState {
-                            path: path.clone(),
-                            offset,
-                            line_number: old_lines,
-                        });
                     }
 
                     WatchCommand::Remove(path) => {
@@ -224,21 +230,24 @@ pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>
         }
     };
     let mut keep_line_nr = 0;
-    let mut count = 0;
-    for (i, line) in contents.lines().enumerate() {
+
+    let text = if log_path.extension().and_then(|e| e.to_str()) == Some("json") {
+        let v: Value = serde_json::from_str(&contents).unwrap_or_default();
+        serde_json::to_string_pretty(&v).unwrap_or_default()
+    } else {
+        contents
+    };
+
+    for (i, line) in text.lines().enumerate() {
         let numbered_line = format!("{}: {}", i + 1, line);
+        println!("{}", numbered_line);
         let _ = log_tx.send(WsEventTx::Log {
             path: log_path.to_string_lossy().to_string(),
             line: numbered_line,
         });
         keep_line_nr= i+1;
-
-        count += 1;
-        if count > 100 {
-            count = 0;
-            //thread::sleep(Duration::from_millis(3));
-        }
     }
+
     return keep_line_nr;
 }
 

@@ -3,6 +3,7 @@ use std::{io, thread};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use serde_json::Value;
 use tokio::sync::{broadcast, mpsc};
 use search_engine::search_input_pattern;
 use log_monitoring::WatchCommand;
@@ -79,12 +80,18 @@ pub fn remove_live_monitoring(cmd_tx: std::sync::mpsc::Sender<WatchCommand>, pat
 /*log_monitoring functions*/
 pub fn get_content(paths: &Vec<PathBuf>) -> String
 {
+    let log_path = Path::new(paths[0].to_str().unwrap());
+    let content = log_monitoring::load_log_contents(log_path);
 
     if paths[0].exists() {
         println!("path exists");
-        let log_path = Path::new(paths[0].to_str().unwrap());
-        let content = log_monitoring::read_and_print_log(log_path);
-        return content;
+        let text = if paths[0].extension().and_then(|e| e.to_str()) == Some("json") {
+            let v: Value = serde_json::from_str(&content).unwrap_or_default();
+            serde_json::to_string_pretty(&v).unwrap_or_default()
+        } else {
+            content
+        };
+        return text;
     }
     String::new()
 }

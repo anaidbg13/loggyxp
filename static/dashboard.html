@@ -52,23 +52,21 @@
   }
 
   #panels-container {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
     gap: 15px;
   }
 
   .log-panel {
-    background: #2b2b3f;
-    border-radius: 10px;
-    padding: 12px;
-    flex: 1 1 400px;
-    display: flex;
-    flex-direction: column;
+    min-width: 0; /* allow shrinking */
     height: 600px;
     min-height: 300px;
-    max-height: 1000px;
     resize: vertical;
     overflow: hidden;
+  }
+
+  #panels-container > .log-panel:last-child:nth-child(odd) {
+    grid-column: span 2;
   }
 
   .log-panel-header {
@@ -109,9 +107,9 @@
   border-radius: 5px;
   margin-top: 8px;
   padding: 8px;
-  flex: 0 0 40%;
-  max-height: 40%;
-  min-height: 120px;
+  flex: 0 0 auto;
+  max-height: 200px;
+  min-height: 40px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -145,11 +143,12 @@
     padding: 6px;
     font-size: 0.9rem;
     line-height: 1.3rem;
-    flex: 1 1 60%;
-    min-height: 0;
-    max-height: 60%;
+    flex: 1 1 auto;
+    min-height: 100px;
+    max-height: none;
     overflow-y: auto;
     overflow-x: auto;
+    white-space: pre;
   }
 
   .search-results {
