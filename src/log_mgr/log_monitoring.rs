@@ -1,11 +1,10 @@
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use notify::event::{EventKind, CreateKind, ModifyKind, RemoveKind};
+use notify::event::{EventKind, CreateKind, ModifyKind};
 use std::{path::Path,fs};
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::Duration;
 use std::path::PathBuf;
-use crate::log_mgr;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::collections::HashMap;
@@ -13,13 +12,11 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 use tokio::sync::broadcast;
 use crate::log_mgr::rust_server::WsEventTx;
-use crate::log_mgr::search_engine::search_string;
 
 #[derive(Debug)]
 pub enum WatchCommand {
     Add(PathBuf),
     Remove(PathBuf),
-    Shutdown,
 }
 struct TailState {
     path: PathBuf,
@@ -30,8 +27,6 @@ struct TailState {
 pub struct LogContextData {
     pub(crate) filters: HashMap<PathBuf, String>,
     pub(crate) notifies: HashMap<PathBuf, String>,
-    pub(crate) filters_regex: HashMap<PathBuf, String>,
-    pub(crate) notifies_regex: HashMap<PathBuf, String>,
 }
 
 
@@ -40,18 +35,10 @@ pub(crate) fn load_log_contents(log_path: &Path) -> String{
     println!("In file {}", log_path.display());
 
     let contents = fs::read_to_string(log_path)
-        .expect("");
+        .expect("error reading log file");
 
     return contents;
 }
-
-pub fn read_only_log(log_path: &Path) -> String{
-
-    let contents = fs::read_to_string(log_path).expect("error reading log file");
-
-    return contents;
-}
-
 
 
 pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::Sender<WsEventTx>, context: Arc<Mutex<LogContextData>>) -> thread::JoinHandle<()> {
@@ -60,7 +47,6 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
         let (event_tx, event_rx) = std::sync::mpsc::channel();
         let mut watchers: HashMap<PathBuf, RecommendedWatcher> = HashMap::new();
         let mut states: HashMap<PathBuf, TailState> = HashMap::new();
-
 
         loop {
             while let Ok(cmd) = cmd_rx.try_recv() {
@@ -105,7 +91,6 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
 
                             watchers.insert(path.clone(), watcher);
 
-                            // Initialize tail state
                             let offset = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                             states.insert(path.clone(), TailState {
                                 path: path.clone(),
@@ -121,10 +106,6 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                         println!("Stopped watching {:?}", path);
                     }
 
-                    WatchCommand::Shutdown => {
-                        println!("Watcher manager shutting down");
-                        return;
-                    }
                 }
             }
 
@@ -138,7 +119,6 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                                 let offset = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                                 TailState { path: path.clone(), offset, line_number: 0 }
                             });
-                            println!("offset {}",state.offset );
 
                             match tail_new_data(state) {
                                 Ok(new_data) => {
@@ -191,13 +171,11 @@ fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
         }
     };
 
-    // Handle truncation / rotation
     if len < state.offset {
         state.offset = 0;
         state.line_number = 0;
     }
-    println!("old offset {}",state.offset );
-    // Move cursor to last read position
+
     file.seek(SeekFrom::Start(state.offset))?;
 
     let mut buf = String::new();
@@ -206,10 +184,8 @@ fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
         return Ok(String::new());
     }
 
-    // Update offset
     state.offset = len;
 
-    println!("new offset {}",state.offset );
     let mut numbered_buf = String::new();
     for line in buf.lines() {
         state.line_number += 1;
@@ -229,7 +205,6 @@ pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>
             return 0;
         }
     };
-    let mut keep_line_nr = 0;
 
     let text = if log_path.extension().and_then(|e| e.to_str()) == Some("json") {
         let v: Value = serde_json::from_str(&contents).unwrap_or_default();
@@ -238,21 +213,36 @@ pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>
         contents
     };
 
+    let mut keep_line_nr = 0;
+    let mut batch = Vec::with_capacity(200);
+
     for (i, line) in text.lines().enumerate() {
-        let numbered_line = format!("{}: {}", i + 1, line);
-        println!("{}", numbered_line);
-        let _ = log_tx.send(WsEventTx::Log {
+        batch.push(format!("{}: {}", i + 1, line));
+        keep_line_nr = i + 1;
+
+        if batch.len() == 200 {
+            let _ = log_tx.send(WsEventTx::LogBatch {
+                path: log_path.to_string_lossy().to_string(),
+                lines: batch,
+            });
+            batch = Vec::with_capacity(200);
+        }
+    }
+
+    // send remaining lines
+    if !batch.is_empty() {
+        let _ = log_tx.send(WsEventTx::LogBatch {
             path: log_path.to_string_lossy().to_string(),
-            line: numbered_line,
+            lines: batch,
         });
-        keep_line_nr= i+1;
     }
 
     return keep_line_nr;
 }
 
+/*Filtering and notifications */
 impl LogContextData {
-    pub fn set_filter(&mut self, paths: Vec<PathBuf>, pattern: String, regex: bool) {
+    pub fn set_filter(&mut self, paths: Vec<PathBuf>, pattern: String) {
         let path = paths[0].clone();
         println!("set filter for path {} with pattern {}", path.display(), pattern);
         self.filters.insert(path, pattern);
@@ -263,25 +253,18 @@ impl LogContextData {
 
     }
 
-    pub fn set_notification(&mut self, paths: Vec<PathBuf>, pattern: String, regex: bool) {
+    pub fn set_notification(&mut self, paths: Vec<PathBuf>, pattern: String) {
 
         println!("set notification for path {} with pattern {}", paths[0].display(), pattern);
         let path = paths[0].clone();
-        if regex {
-            self.notifies_regex.insert(path, pattern);
-        }
-        else{
-            self.notifies.insert(path, pattern);
-        }
-
+        self.notifies.insert(path, pattern);
     }
 
-    fn remove_notification(&mut self, path: PathBuf) {
+    pub fn remove_notification(&mut self, path: PathBuf) {
 
         self.notifies.remove(&path);
     }
 
-    // Called when a file is modified
     fn on_event_modified(&self, path: &PathBuf, line: &str, log_tx: &broadcast::Sender<WsEventTx>) {
 
         if let Some(pattern) = self.notifies.get(path) {
@@ -294,7 +277,7 @@ impl LogContextData {
             }
         }
 
-        let (line_number, content) = match line.split_once(": ") {
+        let (_line_number, content) = match line.split_once(": ") {
             Some((num, rest)) => (num, rest),
             None => ("", line),
         };

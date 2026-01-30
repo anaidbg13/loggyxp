@@ -103,17 +103,15 @@
   }
 
   .panel-bottom {
-  background: #23233a;
-  border-radius: 5px;
-  margin-top: 8px;
-  padding: 8px;
-  flex: 0 0 auto;
-  max-height: 200px;
-  min-height: 40px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+    background: #23233a;
+    border-radius: 5px;
+    margin-top: 8px;
+    margin-bottom: 16px;
+    padding: 8px;
+    flex: 0 0 auto;
+    max-height: 200px;
+    min-height: 40px;
+    overflow-y: auto;
 }
 
   .panel-buttons {
@@ -152,7 +150,7 @@
   }
 
   .search-results {
-    flex: 1;
+    flex: none;
     background: #111;
   }
 
@@ -174,7 +172,7 @@
 </style>
 </head>
 <body>
-<h3>Log Monitor</h3>
+<h3>loggyxp</h3>
 
 <div id="controls">
   <textarea id="paths" placeholder="Enter log paths, one per line"></textarea>
@@ -259,12 +257,12 @@ panelDiv.innerHTML = `
       </div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
         <input type="text" class="panel-filter" placeholder="Filter lines (substring)" />
-       <!-- <label><input type="checkbox" class="filter-checkbox" /> Regex</label> -->
         <button class="apply-filter">Apply Filter</button>
+        <button class="clear-filter">Clear Filter</button>
         <span style="display:inline-block; width:24px;"></span>
         <input type="text" class="panel-notify" placeholder="Notify when (substring)" />
-      <!--  <label><input type="checkbox" class="notify-checkbox" /> Regex</label> -->
         <button class="apply-notify">Set Notification</button>
+        <button class="clear-notify">Clear Notification</button>
       </div>
     </div>
     <div class="logs-container">
@@ -291,7 +289,10 @@ panelDiv.innerHTML = `
   const notifyCheckbox = panelDiv.querySelector(".notify-checkbox");
   const applyNotifyBtn = panelDiv.querySelector(".apply-notify");
   const clearSearchBtn = panelDiv.querySelector(".clear-search");
- 
+  const clearFilterBtn = panelDiv.querySelector(".clear-filter");
+  const clearNotifyBtn = panelDiv.querySelector(".clear-notify");
+
+
 
 
   let autoScroll = true;
@@ -318,16 +319,23 @@ panelDiv.innerHTML = `
 
   applyFilterBtn.onclick = () => {
   const pattern = filterInput.value.trim();
-  const enabled = false;
-  //panelDiv.filterValue = enabled ? filterValue : "";
-  sendCommand("Filter_by", [path], {pattern, regex: enabled });
+  sendCommand("Filter_by", [path], {pattern});
   };
+
+  clearFilterBtn.onclick = () => {
+    filterInput.value = "";
+    sendCommand("remove_filter", [path]);
+  };
+
 
   applyNotifyBtn.onclick = () => {
   const pattern = notifyInput.value.trim();
-  const enabled = false;
-  //panelDiv.notifyValue = enabled ? notifyValue : "";
-  sendCommand("Notify_when", [path], {pattern, regex: enabled });
+  sendCommand("Notify_when", [path], {pattern});
+  };
+
+  clearNotifyBtn.onclick = () => {
+    notifyInput.value = "";
+    sendCommand("remove_notification", [path]);
   };
 
   // SEARCH → RUST
@@ -386,6 +394,26 @@ ws.onmessage = (event) => {
       tailEl.scrollTop = tailEl.scrollHeight;
     }
   }
+
+  if (msg.type === "log_batch") {
+    const panel = panels.get(msg.path);
+    if (!panel) return;
+
+    const tailEl = panel.tailEl;
+    const fragment = document.createDocumentFragment();
+
+    msg.lines.forEach(line => {
+      const div = document.createElement("div");
+      div.textContent = line;
+      fragment.appendChild(div);
+    });
+
+    tailEl.appendChild(fragment);
+
+    // Jump instantly to bottom
+    tailEl.scrollTop = tailEl.scrollHeight;
+  }
+
 
   if (msg.type === "search_result") {
     const searchEl = panel.searchEl;

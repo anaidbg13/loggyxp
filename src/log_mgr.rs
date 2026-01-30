@@ -1,20 +1,16 @@
 use std::path::{Path, PathBuf};
-use std::{io, thread};
+use std::thread;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use serde_json::Value;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast;
 use search_engine::search_input_pattern;
-use log_monitoring::WatchCommand;
 use log_monitoring::start_watcher_manager;
 use crate::log_mgr::log_monitoring::LogContextData;
 use crate::log_mgr::rust_server::WsEventTx;
 
 pub mod log_monitoring;
 pub mod search_engine;
-pub mod log_filtering;
-pub mod log_notification;
 mod rust_server;
 
 pub fn main() {
@@ -26,8 +22,6 @@ pub fn main() {
     let context = Arc::new(Mutex::new(LogContextData {
         filters: HashMap::new(),
         notifies: HashMap::new(),
-        filters_regex: HashMap::new(),
-        notifies_regex: HashMap::new(),
     }));
 
     let context_for_watcher = Arc::clone(&context);
@@ -50,41 +44,12 @@ pub fn main() {
     }
 }
 
-
-pub fn function() {
-    println!("inside log_mgr");
-    //get_content();
-}
-
-pub fn start_live_monitoring(cmd_tx: std::sync::mpsc::Sender<WatchCommand>, paths: Vec<PathBuf>) {
-    std::thread::spawn(move || {
-        use std::time::Duration;
-
-        for path in paths {
-            println!("📨 Sending watch request: {:?}", path);
-            cmd_tx.send(WatchCommand::Add(path)).unwrap();
-            std::thread::sleep(Duration::from_secs(2));
-        }
-    });
-}
-
-pub fn remove_live_monitoring(cmd_tx: std::sync::mpsc::Sender<WatchCommand>, paths: Vec<PathBuf>) {
-
-    for path in paths {
-        println!("Removing watch request: {:?}", path);
-        cmd_tx.send(WatchCommand::Remove(path)).unwrap();
-        std::thread::sleep(Duration::from_secs(2));
-    }
-}
-
-/*log_monitoring functions*/
 pub fn get_content(paths: &Vec<PathBuf>) -> String
 {
     let log_path = Path::new(paths[0].to_str().unwrap());
     let content = log_monitoring::load_log_contents(log_path);
 
     if paths[0].exists() {
-        println!("path exists");
         let text = if paths[0].extension().and_then(|e| e.to_str()) == Some("json") {
             let v: Value = serde_json::from_str(&content).unwrap_or_default();
             serde_json::to_string_pretty(&v).unwrap_or_default()
@@ -96,89 +61,26 @@ pub fn get_content(paths: &Vec<PathBuf>) -> String
     String::new()
 }
 
-
-
-/*log_filtering functions*/
-fn call_filter_lines(content: &String, word: &String)
-{
-    /*dummy code to test json parsing*/
-    /*
-    log_filtering::parse_json(&content).expect("TODO: panic message");
-    let keys = log_filtering::filter_by_key_json(&content, &word);
-    let content_in = log_filtering::filter_lines(&content, &word);
-    println!("filtered lines with word -{}-: \n{}",word, content_in);
-    println!("Matches found for key {} : {} ",word, keys);
-    */
-
-}
-
-/*Search_engine functions*/
-
 fn call_search_string(log_tx: &broadcast::Sender<WsEventTx>, pattern: &String, paths: Vec<PathBuf>)
 {
     let content = get_content(&paths);
     let lines = search_engine::search_string(&content, &pattern);
-    println!("lines with pattern {}: {:?}",pattern, lines);
-    let mut count = 0;
-    let liner_iter = lines.clone().into_iter();
     let _ = log_tx.send(WsEventTx::SearchResult {
         path: paths[0].to_string_lossy().to_string(),
         lines: lines.clone(),
     });
-   // thread::sleep(Duration::from_millis(5));
-
-
 }
+
 fn get_search_input_with_regex(log_tx: &broadcast::Sender<WsEventTx>, re_pattern: &String, paths: Vec<PathBuf>)
 {
     let content = get_content(&paths);
 
     let  matches = search_input_pattern(&content,&re_pattern);
-
-    let mut count = 0;
+    
         let _ = log_tx.send(WsEventTx::SearchResult {
             path: paths[0].to_string_lossy().to_string(),
             lines: matches,
         });
 
-    //thread::sleep(Duration::from_millis(5));
-
 }
 
-    /*if matches.last().unwrap().to_string() == "valid"
-    {
-        //after checking validity, remove last_index
-        let last_index = matches.len() - 1;
-        matches.remove(last_index);
-
-        //remove duplicates
-        matches.sort();
-        matches.dedup();
-
-            for m in matches {
-                call_filter_lines(&content, &m);
-            }
-    }
-    else
-    {
-
-    }
-
-
-}*/
-
-pub fn check_patterns(line: &String, pattern: &String) {
-
-
-
-}
-
-
-pub fn call_set_notification(log_tx: &broadcast::Sender<WsEventTx>, pattern: &String, log_path: &Vec<PathBuf>) {
-    
-}
-
-pub fn call_set_notification_regex(log_tx: &broadcast::Sender<WsEventTx>, pattern: &String, log_path: &Vec<PathBuf>) {
-
-
-}

@@ -1,4 +1,4 @@
-use axum::{response::Html, routing::get, Router, extract::Json, extract::State};
+use axum::{response::Html, routing::get, Router, extract::State};
 use axum::response::IntoResponse;
 use std::{net::SocketAddr, sync::Arc, path::PathBuf, sync::Mutex};
 use tokio::net::TcpListener;
@@ -10,20 +10,11 @@ use futures_util::{StreamExt, SinkExt};
 use tokio::sync::broadcast;
 use crate::log_mgr;
 
-#[derive(Deserialize)]
-struct PathRequest {
-    path: String,
-}
-
 #[derive(Clone)]
 struct AppState {
     cmd_tx: Sender<WatchCommand>,
     log_tx: broadcast::Sender<WsEventTx>,
     context: Arc<Mutex<LogContextData>>,
-}
-
-pub struct WsClient {
-    tx: Sender<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -49,14 +40,22 @@ enum ClientMessage {
     FilterBy {
         paths: Vec<String>,
         pattern: String,
-        regex: bool,
     },
 
     #[serde(rename = "Notify_when")]
     NotifyWhen {
         paths: Vec<String>,
         pattern: String,
-        regex: bool,
+    },
+
+    #[serde(rename = "remove_filter")]
+    RemoveFilter {
+        paths: Vec<String>,
+    },
+
+    #[serde(rename = "remove_notification")]
+    RemoveNotification {
+        paths: Vec<String>,
     },
 }
 
@@ -74,6 +73,12 @@ pub enum WsEventTx {
         path: String,
         lines: Vec<String>,
     },
+
+    #[serde(rename = "log_batch")]
+    LogBatch {
+        path: String,
+        lines: Vec<String>,
+    }
 }
 
 
@@ -136,7 +141,7 @@ async fn ws_handler(
 }
 
 async fn handle_socket(
-    mut socket: WebSocket,
+    socket: WebSocket,
     state: AppState,
     mut log_rx: broadcast::Receiver<WsEventTx>
 ) {
@@ -167,7 +172,7 @@ async fn handle_socket(
                     let paths_buf = paths.into_iter()
                         .map(PathBuf::from)
                         .collect();
-                    state.cmd_tx.send(WatchCommand::Add(paths_buf)).expect("failed to remove watcher");
+                    state.cmd_tx.send(WatchCommand::Add(paths_buf)).expect("failed to create watcher");
                 }
                 Ok(ClientMessage::StopTailing { paths }) => {
                     println!("Stop tailing {}", paths.join(", "));
@@ -177,10 +182,6 @@ async fn handle_socket(
                     state.cmd_tx.send(WatchCommand::Remove(paths_buf)).expect("failed to remove watcher");
                 }
                 Ok(ClientMessage::Search { paths, pattern, regex }) => {
-                    println!(
-                        "Search request: paths={:?}, pattern={}, regex={}",
-                        paths, pattern, regex
-                    );
 
                     let paths_buf: Vec<_> = paths
                         .into_iter()
@@ -194,7 +195,7 @@ async fn handle_socket(
                         log_mgr::call_search_string(&state.log_tx, &pattern, paths_buf);
                     }
                 }
-                Ok(ClientMessage::FilterBy { paths, pattern, regex }) => {
+                Ok(ClientMessage::FilterBy { paths, pattern}) => {
                     let paths_buf: Vec<_> = paths
                         .into_iter()
                         .map(PathBuf::from)
@@ -202,23 +203,32 @@ async fn handle_socket(
 
 
                     let mut ctx = state.context.lock().unwrap();
-                    println!("Notify request: paths={:?}, pattern={}, regex={}", paths_buf, pattern, regex);
-                    ctx.set_filter(paths_buf, pattern, regex);
+                    println!("Notify request: paths={:?}, pattern={}", paths_buf, pattern);
+                    ctx.set_filter(paths_buf, pattern);
 
                 }
-                Ok(ClientMessage::NotifyWhen { paths, pattern, regex }) => {
+                Ok(ClientMessage::NotifyWhen { paths, pattern}) => {
 
                     let paths_buf: Vec<_> = paths
                         .into_iter()
                         .map(PathBuf::from)
                         .collect();
 
-
                         let mut ctx = state.context.lock().unwrap();
-                    println!("Notify request: paths={:?}, pattern={}, regex={}", paths_buf, pattern, regex);
-                        ctx.set_notification(paths_buf, pattern, regex);
+                    println!("Notify request: paths={:?}, pattern={}", paths_buf, pattern);
+                        ctx.set_notification(paths_buf, pattern);
 
 
+                }
+                Ok(ClientMessage::RemoveFilter { paths }) => {
+                    let path: PathBuf = paths[0].clone().into();
+                    let mut ctx = state.context.lock().unwrap();
+                    ctx.remove_filter(path)
+                }
+                Ok(ClientMessage::RemoveNotification { paths }) => {
+                    let path: PathBuf = paths[0].clone().into();
+                    let mut ctx = state.context.lock().unwrap();
+                    ctx.remove_notification(path)
                 }
                 Err(e) => {
                     eprintln!("Invalid WS message: {}", e);

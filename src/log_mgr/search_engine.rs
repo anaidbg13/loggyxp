@@ -17,12 +17,6 @@ pub fn search_string(content: &String, word: &String) -> Vec<String> {
         }
     }
 
-    if lines.is_empty() {
-        println!("'{}' was not found", word);
-    } else {
-        println!("'{}' found on lines {:?}", word, lines);
-    }
-
     lines
 }
 
@@ -47,13 +41,6 @@ pub fn search_input_pattern(content: &String, pattern: &String) -> Vec<String>
                         .then(|| format!("{}: {}", idx + 1, line))
                 })
                 .collect();
-            /*if !matches.is_empty() {
-                return matches;
-            } else {
-                println!("Could not find any matches");
-                //matches.push(String::from("Could not find any matches"));
-                return matches;
-            }*/
             return matches;
         }
         Err(_) => {
@@ -62,15 +49,4 @@ pub fn search_input_pattern(content: &String, pattern: &String) -> Vec<String>
             return matches;
         }
     }
-}
-
-pub fn remove_duplicates(matches: &Vec<String>) -> Vec<String>
-{
-    let mut non_duplicates = matches.clone();
-
-    non_duplicates.sort();
-    non_duplicates.dedup();
-
-    return non_duplicates;
-
 }
