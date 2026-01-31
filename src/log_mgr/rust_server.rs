@@ -10,13 +10,15 @@ use futures_util::{StreamExt, SinkExt};
 use tokio::sync::broadcast;
 use crate::log_mgr;
 
+// Shared application state for handlers
 #[derive(Clone)]
 struct AppState {
-    cmd_tx: Sender<WatchCommand>,
-    log_tx: broadcast::Sender<WsEventTx>,
-    context: Arc<Mutex<LogContextData>>,
+    cmd_tx: Sender<WatchCommand>, // Channel to send watch commands
+    log_tx: broadcast::Sender<WsEventTx>, // Channel to broadcast log events
+    context: Arc<Mutex<LogContextData>>, // Shared log context
 }
 
+// Messages received from the client via WebSocket
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type")]
 enum ClientMessage {
@@ -59,6 +61,7 @@ enum ClientMessage {
     },
 }
 
+// Events sent to the client via WebSocket
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum WsEventTx {
@@ -81,13 +84,14 @@ pub enum WsEventTx {
     }
 }
 
-
+// Loads HTML file for dashboard
 fn load_html(path: &str) -> Html<String> {
     let html = std::fs::read_to_string(path)
         .unwrap_or_else(|_| "<h1>File not found</h1>".to_string());
     Html(html)
 }
 
+// Starts the HTTP and WebSocket server
 pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: broadcast::Sender<WsEventTx>, context: Arc<Mutex<LogContextData>>) {
     let addr: SocketAddr = "127.0.0.1:3000".parse().unwrap();
     let html_path = "static/dashboard.html";
@@ -104,6 +108,7 @@ pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: broadcast::Sender<WsEven
     rt.block_on(async move {
         let html_for_handler = html.clone();
 
+        // Set up routes for HTTP and WebSocket
         let app = Router::new().route(
             "/",
             get(move || {
@@ -112,7 +117,6 @@ pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: broadcast::Sender<WsEven
             }),
 
         )
-
             .route(
                 "/ws",
                 get(move |ws: WebSocketUpgrade, State(state): State<AppState>| {
@@ -122,7 +126,7 @@ pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: broadcast::Sender<WsEven
             )
             .with_state(state);
 
-
+        // Bind TCP listener and start server
         let listener = TcpListener::bind(addr).await.unwrap();
         println!("HTTP server listening on http://{}/", addr);
 
@@ -130,6 +134,7 @@ pub fn run_server(cmd_tx: Sender<WatchCommand>, log_tx: broadcast::Sender<WsEven
     });
 }
 
+// Handles WebSocket upgrade and delegates to socket handler
 async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
@@ -138,6 +143,7 @@ async fn ws_handler(
     ws.on_upgrade(move |socket| handle_socket(socket, state, log_rx))
 }
 
+// Handles communication with a single WebSocket client
 async fn handle_socket(
     socket: WebSocket,
     state: AppState,
@@ -146,6 +152,7 @@ async fn handle_socket(
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
+    // Spawn a task to send log events to the client
     tokio::spawn(async move {
         while let Ok(event) = log_rx.recv().await {
             let json = serde_json::to_string(&event).unwrap();
@@ -155,17 +162,19 @@ async fn handle_socket(
         }
     });
 
+    // Main loop to receive and handle client messages
     while let Some(Ok(msg)) = ws_rx.next().await {
         if let Message::Text(text) = msg {
             match serde_json::from_str::<ClientMessage>(&text) {
                 Ok(ClientMessage::WatchPaths { paths }) => {
+                    // Add paths to watcher
                     let paths_buf = paths.into_iter()
                         .map(PathBuf::from)
                         .collect();
                     state.cmd_tx.send(WatchCommand::Add(paths_buf)).expect("failed to create watcher");
                 }
                 Ok(ClientMessage::StartTailing { paths}) => {
-                    println!("Start tailing");
+                    println!("Start tailing log(s)");
                     let paths_buf = paths.into_iter()
                         .map(PathBuf::from)
                         .collect();
@@ -179,7 +188,7 @@ async fn handle_socket(
                     state.cmd_tx.send(WatchCommand::Remove(paths_buf)).expect("failed to remove watcher");
                 }
                 Ok(ClientMessage::Search { paths, pattern, regex }) => {
-
+                    // Perform search (regex or string)
                     let paths_buf: Vec<_> = paths
                         .into_iter()
                         .map(PathBuf::from)
@@ -193,11 +202,11 @@ async fn handle_socket(
                     }
                 }
                 Ok(ClientMessage::FilterBy { paths, pattern}) => {
+                    // Set filter for paths
                     let paths_buf: Vec<_> = paths
                         .into_iter()
                         .map(PathBuf::from)
                         .collect();
-
 
                     let mut ctx = state.context.lock().unwrap();
                     println!("Notify request: paths={:?}, pattern={}", paths_buf, pattern);
@@ -205,29 +214,31 @@ async fn handle_socket(
 
                 }
                 Ok(ClientMessage::NotifyWhen { paths, pattern}) => {
-
+                    // Set notification for paths
                     let paths_buf: Vec<_> = paths
                         .into_iter()
                         .map(PathBuf::from)
                         .collect();
 
-                        let mut ctx = state.context.lock().unwrap();
+                    let mut ctx = state.context.lock().unwrap();
                     println!("Notify request: paths={:?}, pattern={}", paths_buf, pattern);
-                        ctx.set_notification(paths_buf, pattern);
-
+                    ctx.set_notification(paths_buf, pattern);
 
                 }
                 Ok(ClientMessage::RemoveFilter { paths }) => {
+                    // Remove filter for path
                     let path: PathBuf = paths[0].clone().into();
                     let mut ctx = state.context.lock().unwrap();
                     ctx.remove_filter(path)
                 }
                 Ok(ClientMessage::RemoveNotification { paths }) => {
+                    // Remove notification for path
                     let path: PathBuf = paths[0].clone().into();
                     let mut ctx = state.context.lock().unwrap();
                     ctx.remove_notification(path)
                 }
                 Err(e) => {
+                    // Handle invalid client message
                     eprintln!("Invalid WS message: {}", e);
                 }
             }

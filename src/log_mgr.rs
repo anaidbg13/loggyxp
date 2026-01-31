@@ -14,12 +14,15 @@ pub mod search_engine;
 pub mod rust_server;
 pub mod log_context_data;
 
+// Entry point for the application
 pub fn main() {
     println!("main");
 
+    // Create channels for watcher commands and log events
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
     let (log_tx, _log_rx) = tokio::sync::broadcast::channel::<WsEventTx>(8192);
 
+    // Shared context for filters and notifications
     let context = Arc::new(Mutex::new(LogContextData {
         filters: HashMap::new(),
         notifies: HashMap::new(),
@@ -28,7 +31,7 @@ pub fn main() {
     let context_for_watcher = Arc::clone(&context);
     let context_for_server = Arc::clone(&context);
 
-    // Start server
+    // Start the server in a separate thread
     thread::spawn({
         let cmd_tx = cmd_tx.clone();
         let log_tx = log_tx.clone();
@@ -37,14 +40,16 @@ pub fn main() {
         }
     });
 
-    // Start watcher
+    // Start the file watcher manager
     let _ = start_watcher_manager(cmd_rx, log_tx, context_for_watcher);
 
+    // Park the main thread to keep the process alive
     loop {
         std::thread::park();
     }
 }
 
+// Loads the contents of the first path in the list, pretty-prints JSON if needed
 pub fn get_content(paths: &Vec<PathBuf>) -> String
 {
     let log_path = Path::new(paths[0].to_str().unwrap());
@@ -62,6 +67,7 @@ pub fn get_content(paths: &Vec<PathBuf>) -> String
     String::new()
 }
 
+// Searches for a string pattern in the log file and sends results to clients
 fn call_search_string(log_tx: &broadcast::Sender<WsEventTx>, pattern: &String, paths: Vec<PathBuf>)
 {
     let content = get_content(&paths);
@@ -72,16 +78,17 @@ fn call_search_string(log_tx: &broadcast::Sender<WsEventTx>, pattern: &String, p
     });
 }
 
+// Searches for a regex pattern in the log file and sends results to clients
 fn get_search_input_with_regex(log_tx: &broadcast::Sender<WsEventTx>, re_pattern: &String, paths: Vec<PathBuf>)
 {
     let content = get_content(&paths);
 
     let  matches = search_input_pattern(&content,&re_pattern);
 
-        let _ = log_tx.send(WsEventTx::SearchResult {
-            path: paths[0].to_string_lossy().to_string(),
-            lines: matches,
-        });
+    let _ = log_tx.send(WsEventTx::SearchResult {
+        path: paths[0].to_string_lossy().to_string(),
+        lines: matches,
+    });
 
 }
 

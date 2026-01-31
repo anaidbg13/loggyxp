@@ -15,33 +15,39 @@ use crate::log_mgr::rust_server::WsEventTx;
 
 
 
+/// Commands for the watcher manager to add or remove files to watch
 #[derive(Debug)]
 pub enum WatchCommand {
     Add(PathBuf),
     Remove(PathBuf),
 }
+
+/// State for tailing a file: path, current offset, and line number
 struct TailState {
     path: PathBuf,
     offset: u64,
     line_number: usize,
 }
 
+/// Context data for log management, including filters and notifications
 pub struct LogContextData {
     pub(crate) filters: HashMap<PathBuf, String>,
     pub(crate) notifies: HashMap<PathBuf, String>,
 }
 
-
+/// Loads the entire contents of a log file as a String
 pub(crate) fn load_log_contents(log_path: &Path) -> String{
-
     let contents = fs::read_to_string(log_path)
         .expect("error reading log file");
-
     return contents;
 }
 
-
-pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::Sender<WsEventTx>, context: Arc<Mutex<LogContextData>>) -> thread::JoinHandle<()> {
+/// Starts the watcher manager thread, which listens for add/remove commands and file events
+pub fn start_watcher_manager(
+    cmd_rx: Receiver<WatchCommand>,
+    log_tx: broadcast::Sender<WsEventTx>,
+    context: Arc<Mutex<LogContextData>>
+) -> thread::JoinHandle<()> {
 
     thread::spawn(move || {
         let (event_tx, event_rx) = std::sync::mpsc::channel();
@@ -49,6 +55,7 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
         let mut states: HashMap<PathBuf, TailState> = HashMap::new();
 
         loop {
+            // Handle add/remove commands
             while let Ok(cmd) = cmd_rx.try_recv() {
                 match cmd {
                     WatchCommand::Add(path) => {
@@ -57,12 +64,14 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                         }
                         let mut old_lines= 0;
 
+                        // Send existing log lines before watching
                         if path.exists() {
                             old_lines = send_old_log_lines(&path, &log_tx);
                         }
 
                         println!("Watching {:?}", path);
 
+                        // Only watch non-JSON files
                         if path
                             .extension()
                             .and_then(|e| e.to_str())
@@ -91,6 +100,7 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
 
                             watchers.insert(path.clone(), watcher);
 
+                            // Initialize tail state for the file
                             let offset = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                             states.insert(path.clone(), TailState {
                                 path: path.clone(),
@@ -109,16 +119,19 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
                 }
             }
 
+            // Handle file system events
             while let Ok(event) = event_rx.try_recv() {
 
                 match event.kind {
                     EventKind::Modify(ModifyKind::Data(_)) => {
                         for path in &event.paths {
+                            // Get or create tail state for the file
                             let state = states.entry(path.clone()).or_insert_with(|| {
                                 let offset = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                                 TailState { path: path.clone(), offset, line_number: 0 }
                             });
 
+                            // Read new data and send to clients
                             match tail_new_data(state) {
                                 Ok(new_data) => {
                                     for line in new_data.lines() {
@@ -150,7 +163,7 @@ pub fn start_watcher_manager(cmd_rx: Receiver<WatchCommand>, log_tx: broadcast::
     })
 }
 
-
+/// Reads new data appended to a file since the last read, updates state, and returns the new lines
 fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
 
     let mut file = match File::open(&state.path) {
@@ -169,6 +182,7 @@ fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
         }
     };
 
+    // If file was truncated, reset offset and line number
     if len < state.offset {
         state.offset = 0;
         state.line_number = 0;
@@ -184,16 +198,17 @@ fn tail_new_data(state: &mut TailState) -> std::io::Result<String> {
 
     state.offset = len;
 
+    // Add line numbers to each new line
     let mut numbered_buf = String::new();
     for line in buf.lines() {
         state.line_number += 1;
         numbered_buf.push_str(&format!("{}: {}\n", state.line_number, line));
     }
 
-
     Ok(numbered_buf)
 }
 
+/// Sends all existing lines of a log file to the broadcast channel in batches, returns total lines sent
 pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>)-> usize {
 
     let contents = match fs::read_to_string(log_path) {
@@ -204,6 +219,7 @@ pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>
         }
     };
 
+    // Pretty-print JSON files, otherwise use raw contents
     let text = if log_path.extension().and_then(|e| e.to_str()) == Some("json") {
         let v: Value = serde_json::from_str(&contents).unwrap_or_default();
         serde_json::to_string_pretty(&v).unwrap_or_default()
@@ -214,6 +230,7 @@ pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>
     let mut keep_line_nr = 0;
     let mut batch = Vec::with_capacity(200);
 
+    // Send lines in batches of 200
     for (i, line) in text.lines().enumerate() {
         batch.push(format!("{}: {}", i + 1, line));
         keep_line_nr = i + 1;
@@ -227,7 +244,7 @@ pub fn send_old_log_lines(log_path: &Path, log_tx: &broadcast::Sender<WsEventTx>
         }
     }
 
-    //send remaining lines
+    // Send remaining lines
     if !batch.is_empty() {
         let _ = log_tx.send(WsEventTx::LogBatch {
             path: log_path.to_string_lossy().to_string(),
