@@ -46,10 +46,10 @@ static/
 tests/
   generator.sh             # Script to generate test logs
   logs_for_testing/
-    demo.txt               # Example log file
-    dummy_log1.txt         # Example log file
+    dummy_log1.txt         # Example line-based log file
     json1.json             # Example JSON log file
-    wii.txt                # Example log file
+    Apache_2k.log          # Example Apache log file
+    dns_with_timestamps.log # Example DNS log file with timestamps
 ```
 
 ---
@@ -81,19 +81,23 @@ tests/
 1. **Start LoggyXP** and open the dashboard in your browser.
 2. **Locate the "Add Log File" or "Watch Log" input** on the dashboard (usually a text field and button).
    - The main dashboard is `static/dashboard.html`.
-3. **Enter the full path** to the log file you want to monitor (e.g., `/var/log/syslog` or `tests/logs_for_testing/demo.txt`).
+3. **Enter the full path** to the log file you want to monitor (e.g., `/var/log/syslog`, `tests/logs_for_testing/dummy_log1.txt`, `tests/logs_for_testing/Apache_2k.log`, or `tests/logs_for_testing/dns_with_timestamps.log`).
 4. **Click the "Add" or "Watch" button** to start monitoring the log file.
 5. The log file will appear in the dashboard, and new entries will be displayed in real time.
 
 > **Tip:**  
-> You can add more than one log  at a time by entering multiple log paths, one per line and then click on button Add Path(s). 
+> You can add more than one log at a time by entering multiple log paths, one per line and then click on button Add Path(s).  
 > Make sure the log file exists and is readable by the application.
 
 ---
 
 ## Testing
 
-- Example log files for testing are available in `tests/logs_for_testing/`.
+- Example log files for testing are available in `tests/logs_for_testing/`:
+    - `dummy_log1.txt` – Example line-based log file
+    - `json1.json` – Example JSON log file
+    - `Apache_2k.log` – Example Apache log file
+    - `dns_with_timestamps.log` – Example DNS log file with timestamps
 - Use `generator.sh` in the `tests/` folder to generate or modify test logs.
 
 ---
